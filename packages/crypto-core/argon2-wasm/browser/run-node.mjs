@@ -77,17 +77,32 @@ try {
     "legacy p=1 envelope tuple vector matches",
   );
   assert.equal(
-    wasm.pdv_derive_key_p4(passwordPointer, password.length, candidateSaltPointer, candidateSalt.length, outputPointer, 32),
+    wasm.pdv_derive_key_p4(
+      passwordPointer,
+      password.length,
+      candidateSaltPointer,
+      candidateSalt.length,
+      outputPointer,
+      32,
+    ),
     0,
     "proposed p=4 tuple succeeds",
   );
-  assert.equal(hex(new Uint8Array(wasm.memory.buffer, outputPointer, 32)), expectedPdvP4, "proposed p=4 tuple vector matches");
+  assert.equal(
+    hex(new Uint8Array(wasm.memory.buffer, outputPointer, 32)),
+    expectedPdvP4,
+    "proposed p=4 tuple vector matches",
+  );
   assert.equal(
     wasm.pdv_derive_key(1, 1, 1, 0, outputPointer, 32),
     1,
     "invalid lengths reject",
   );
-  assert.equal(wasm.pdv_alloc(1_048_577), 0, "oversized input allocation rejects");
+  assert.equal(
+    wasm.pdv_alloc(1_048_577),
+    0,
+    "oversized input allocation rejects",
+  );
   console.log(
     "PASS: Node WebAssembly KAT, p=1 compatibility, p=4 vector, and malformed-input checks.",
   );

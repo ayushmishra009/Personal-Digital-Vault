@@ -86,10 +86,18 @@
         candidateTimes.sort((left, right) => left - right);
 
         const legacyStatus = wasm.pdv_derive_key(
-          passwordPointer, password.length, candidateSaltPointer,
-          candidateSalt.length, outputPointer, 32,
+          passwordPointer,
+          password.length,
+          candidateSaltPointer,
+          candidateSalt.length,
+          outputPointer,
+          32,
         );
-        if (legacyStatus !== 0 || hex(new Uint8Array(wasm.memory.buffer, outputPointer, 32)) !== expectedPdvTuple) {
+        if (
+          legacyStatus !== 0 ||
+          hex(new Uint8Array(wasm.memory.buffer, outputPointer, 32)) !==
+            expectedPdvTuple
+        ) {
           throw new Error("Legacy p=1 envelope vector failed");
         }
 
