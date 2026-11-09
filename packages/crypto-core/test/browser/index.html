@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PDV crypto-core Worker integration</title>
+  </head>
+  <body>
+    <pre id="result">RUNNING</pre>
+    <script type="module">
+      import { createVekEnvelopes } from "../../src/index.ts";
+      import { WorkerArgon2idProvider } from "../../src/argon2-worker-provider.ts";
+
+      const result = document.querySelector("#result");
+      const p1 = {
+        version: 19,
+        memoryKiB: 65536,
+        iterations: 3,
+        parallelism: 1,
+      };
+      const p4 = {
+        version: 19,
+        memoryKiB: 65536,
+        iterations: 3,
+        parallelism: 4,
+      };
+      const expected1 =
+        "daf16780dcb73e862146297fa17b81b86b480f33c0b67daef0f2c7c809c5797b";
+      const expected4 =
+        "b8a64b68dea6b88ca8c8862be706aac37cbecda0db7bd68b48f8fa2e7feb6f3e";
+      const toHex = (bytes) =>
+        Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+          "",
+        );
+      const wasmBytes = Uint8Array.from(atob("__PDV_WASM_BASE64__"), (value) =>
+        value.charCodeAt(0),
+      );
+      (async () => {
+        let ticks = 0;
+        const heartbeat = setInterval(() => {
+          ticks += 1;
+        }, 5);
+        try {
+          const provider = new WorkerArgon2idProvider(
+            await WebAssembly.compile(wasmBytes),
+          );
+          const password = new TextEncoder().encode("password");
+          const salt = new TextEncoder().encode("0123456789abcdef");
+          const oldOutput = await provider.deriveKey(password, salt, p1);
+          const newOutput = await provider.deriveKey(password, salt, p4);
+          if (toHex(oldOutput) !== expected1 || toHex(newOutput) !== expected4)
+            throw new Error("provider vector mismatch");
+          let nextRandom = 0;
+          const deterministicCrypto = {
+            subtle: crypto.subtle,
+            getRandomValues(array) {
+              for (let index = 0; index < array.length; index += 1)
+                array[index] = nextRandom++ & 255;
+              return array;
+            },
+          };
+          const envelopes = await createVekEnvelopes(
+            "päss🔐",
+            provider,
+            deterministicCrypto,
+          );
+          if (
+            envelopes.passwordEnvelope.kdfParameters.parallelism !== 4 ||
+            envelopes.passwordEnvelope.wrappedVek !==
+              "-sUnFpAk4ctosqxzWFCAzvqAe3nBr6o8WwQKdBCwuVKRSZjzgEVltQ" ||
+            envelopes.recoveryEnvelope.wrappedVek !==
+              "s2HTi-7e7OCBDzaXUY4HlrE4gZQDpRDLfgFUaaRK_IR3qfTb87NyHg"
+          ) {
+            throw new Error("Cross-browser envelope KAT mismatch");
+          }
+          const controller = new AbortController();
+          const pending = provider.deriveKey(
+            password,
+            salt,
+            p4,
+            controller.signal,
+          );
+          setTimeout(() => controller.abort(), 1);
+          let cancelled = false;
+          try {
+            await pending;
+          } catch (error) {
+            cancelled = error.name === "AbortError";
+          }
+          if (!cancelled) throw new Error("provider cancellation failed");
+          let rejectedOversize = false;
+          try {
+            await provider.deriveKey(new Uint8Array(1048577), salt, p4);
+          } catch {
+            rejectedOversize = true;
+          }
+          if (!rejectedOversize)
+            throw new Error("oversized input was accepted");
+          clearInterval(heartbeat);
+          result.textContent = JSON.stringify({
+            pass: ticks > 0,
+            p1: toHex(oldOutput),
+            p4: toHex(newOutput),
+            envelopeCrossCheck: true,
+            heartbeatTicks: ticks,
+            cancellation: cancelled,
+            oversizedInputRejected: rejectedOversize,
+          });
+        } catch (error) {
+          clearInterval(heartbeat);
+          result.textContent = JSON.stringify({
+            pass: false,
+            error: String(error),
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

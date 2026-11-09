@@ -1,0 +1,13 @@
+{
+  "name": "@pdv/api",
+  "private": true,
+  "scripts": {
+    "dev": "go run ./cmd/api",
+    "build": "go build -o bin/pdv-api.exe ./cmd/api",
+    "lint": "go vet ./...",
+    "typecheck": "go build ./...",
+    "test": "go test ./...",
+    "db:up": "go run ./cmd/migrate up",
+    "db:down": "go run ./cmd/migrate down"
+  }
+}

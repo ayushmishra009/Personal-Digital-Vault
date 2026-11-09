@@ -1,0 +1,994 @@
+openapi: 3.1.0
+info:
+  title: Personal Digital Vault API
+  version: 0.1.0
+  description: >-
+    Phase 1 API contract. Vault labels, record fields, URLs, categories,
+    attachments, and keys are never represented as plaintext server fields.
+    This contract does not mean the listed operations are implemented yet.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local development only
+tags:
+  - name: Health
+    description: Process and dependency health
+  - name: Authentication
+    description: Account session operations
+  - name: Devices
+    description: Account device enrollment and management
+  - name: Vaults
+    description: Opaque vault metadata and key envelopes
+  - name: Sync
+    description: Encrypted object revision synchronization
+security: []
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      summary: Report process liveness
+      responses:
+        "200":
+          description: Process is live
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "405":
+          description: Method not allowed
+
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Report readiness of required local dependencies
+      responses:
+        "200":
+          description: Required dependencies are available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "405":
+          description: Method not allowed
+
+  /api/v1/auth/session:
+    get:
+      tags: [Authentication]
+      operationId: getSession
+      summary: Get the current account session
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Current authenticated session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      summary: Revoke the current account session
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Session revoked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/devices:
+    get:
+      tags: [Devices]
+      operationId: listDevices
+      summary: List devices for the authenticated account
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Account devices
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Device"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/device-enrollments:
+    post:
+      tags: [Devices]
+      operationId: createDeviceEnrollment
+      summary: Register a pending device and create an enrollment challenge
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceEnrollmentRequest"
+      responses:
+        "201":
+          description: Pending device and enrollment challenge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceEnrollment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/device-enrollments/{enrollmentId}:
+    get:
+      tags: [Devices]
+      operationId: getDeviceEnrollment
+      summary: Read an enrollment visible to an authorized account device
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/EnrollmentId"
+      responses:
+        "200":
+          description: Enrollment state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceEnrollment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/device-enrollments/{enrollmentId}/approve:
+    post:
+      tags: [Devices]
+      operationId: approveDeviceEnrollment
+      summary: Approve a pending device enrollment
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/EnrollmentId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollmentApproval"
+      responses:
+        "204":
+          description: Enrollment approved
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/devices/{deviceId}/revoke:
+    post:
+      tags: [Devices]
+      operationId: revokeDevice
+      summary: Revoke an account device
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: Device revoked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults:
+    get:
+      tags: [Vaults]
+      operationId: listVaults
+      summary: List vault metadata for the authenticated account
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Opaque vault metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VaultMetadata"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Vaults]
+      operationId: createVault
+      summary: Create a vault using client-generated key envelopes
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVaultRequest"
+      responses:
+        "201":
+          description: Created opaque vault metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultMetadata"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/vaults/{vaultId}:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+    get:
+      tags: [Vaults]
+      operationId: getVault
+      summary: Get opaque vault metadata
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Vault metadata without a plaintext label
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultMetadata"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Vaults]
+      operationId: deleteVault
+      summary: Mark a vault deleted
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: Vault deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vaultId}/envelopes/{envelopeType}:
+    put:
+      tags: [Vaults]
+      operationId: putVaultKeyEnvelope
+      summary: Create or replace a client-generated key envelope
+      description: New password envelopes must use p=4; legacy p=1 envelopes are accepted for reading/unlock only. Body envelopeType must match the path parameter.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/VaultId"
+        - name: envelopeType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [password, recovery]
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewVaultKeyEnvelope"
+      responses:
+        "204":
+          description: Envelope stored
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/vaults/{vaultId}/sync:
+    get:
+      tags: [Sync]
+      operationId: listSyncEvents
+      summary: List opaque sync events after a server sequence cursor
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/VaultId"
+        - name: after
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: "^[0-9]+$"
+            default: "0"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        "200":
+          description: Sync page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vaultId}/sync/operations:
+    post:
+      tags: [Sync]
+      operationId: submitSyncOperation
+      summary: Submit a ciphertext-only revision-aware sync operation
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/VaultId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncOperation"
+      responses:
+        "201":
+          description: Operation accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncOperationResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/vaults/{vaultId}/objects/{objectId}:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+      - $ref: "#/components/parameters/ObjectId"
+    get:
+      tags: [Sync]
+      operationId: getEncryptedObject
+      summary: Get an encrypted object revision
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: revision
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Encrypted object envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EncryptedObjectEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Sync]
+      operationId: putEncryptedObject
+      summary: Store an encrypted object envelope with optimistic revision control
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: If-Match-Revision
+          in: header
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EncryptedObjectEnvelope"
+      responses:
+        "200":
+          description: Encrypted revision stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncOperationResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: pdv_session
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EnrollmentId:
+      name: enrollmentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    VaultId:
+      name: vaultId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ObjectId:
+      name: objectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Resource not found or not visible to this account
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Conflict:
+      description: Revision or state conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnprocessableEntity:
+      description: Request failed semantic validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    ServiceUnavailable:
+      description: A required service is not ready
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    HealthStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [live, ready, not_ready]
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            requestId:
+              type: string
+              format: uuid
+            details:
+              type: object
+              additionalProperties: false
+              properties:
+                currentRevision:
+                  type: integer
+                  minimum: 0
+                attemptedBaseRevision:
+                  type: integer
+                  minimum: 0
+    Account:
+      type: object
+      additionalProperties: false
+      required: [id, email, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [active, suspended]
+        createdAt:
+          type: string
+          format: date-time
+    AccountSession:
+      type: object
+      additionalProperties: false
+      required: [account, authenticatedAt, expiresAt]
+      properties:
+        account:
+          $ref: "#/components/schemas/Account"
+        authenticatedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+    Device:
+      type: object
+      additionalProperties: false
+      required: [id, label, platform, browser, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          minLength: 1
+          maxLength: 100
+        platform:
+          type: string
+          maxLength: 80
+        browser:
+          type: string
+          maxLength: 80
+        status:
+          type: string
+          enum: [pending, active, revoked]
+        createdAt:
+          type: string
+          format: date-time
+        lastSeenAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+    DeviceEnrollmentRequest:
+      type: object
+      additionalProperties: false
+      required: [deviceLabel, platform, browser, publicKeyAlgorithm, publicKey]
+      properties:
+        deviceLabel:
+          type: string
+          minLength: 1
+          maxLength: 100
+        platform:
+          type: string
+          minLength: 1
+          maxLength: 80
+        browser:
+          type: string
+          minLength: 1
+          maxLength: 80
+        publicKeyAlgorithm:
+          type: string
+          minLength: 1
+          maxLength: 64
+        publicKey:
+          $ref: "#/components/schemas/Base64Url"
+    DeviceEnrollment:
+      type: object
+      additionalProperties: false
+      required: [id, deviceId, challenge, expiresAt, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        challenge:
+          $ref: "#/components/schemas/Base64Url"
+        expiresAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, approved, rejected, expired]
+    EnrollmentApproval:
+      type: object
+      additionalProperties: false
+      required: [signatureAlgorithm, signature]
+      properties:
+        signatureAlgorithm:
+          type: string
+          minLength: 1
+          maxLength: 64
+        signature:
+          $ref: "#/components/schemas/Base64Url"
+    VaultMetadata:
+      type: object
+      additionalProperties: false
+      required: [id, protocolVersion, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        protocolVersion:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [active, deleted]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateVaultRequest:
+      type: object
+      additionalProperties: false
+      required: [protocolVersion, envelopes]
+      properties:
+        protocolVersion:
+          type: integer
+          const: 1
+        envelopes:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/NewVaultKeyEnvelope"
+    NewVaultKeyEnvelope:
+      oneOf:
+        - $ref: "#/components/schemas/NewPasswordKeyEnvelope"
+        - $ref: "#/components/schemas/RecoveryKeyEnvelope"
+    NewPasswordKeyEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/VaultKeyEnvelope"
+        - type: object
+          properties:
+            envelopeType: { const: password }
+            kdfAlgorithm: { const: argon2id13 }
+            kdfParameters:
+              $ref: "#/components/schemas/Argon2idP4Parameters"
+    RecoveryKeyEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/VaultKeyEnvelope"
+        - type: object
+          properties:
+            envelopeType: { const: recovery }
+            kdfAlgorithm: { const: hkdf-sha256 }
+            kdfParameters:
+              $ref: "#/components/schemas/EmptyKdfParameters"
+    VaultKeyEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          envelopeType,
+          protocolVersion,
+          keyWrapAlgorithm,
+          kdfAlgorithm,
+          kdfParameters,
+          salt,
+          wrappedVek,
+        ]
+      properties:
+        envelopeType:
+          type: string
+          enum: [password, recovery]
+        protocolVersion:
+          type: integer
+          const: 1
+        keyWrapAlgorithm:
+          type: string
+          const: AES-256-KW
+        kdfAlgorithm:
+          type: string
+          enum: [argon2id13, hkdf-sha256]
+        kdfParameters:
+          oneOf:
+            - $ref: "#/components/schemas/Argon2idP1Parameters"
+            - $ref: "#/components/schemas/Argon2idP4Parameters"
+            - $ref: "#/components/schemas/EmptyKdfParameters"
+        salt:
+          type: string
+          minLength: 22
+          maxLength: 22
+          pattern: "^[A-Za-z0-9_-]{20}[AQgw]$"
+        wrappedVek:
+          type: string
+          minLength: 54
+          maxLength: 54
+          pattern: "^[A-Za-z0-9_-]{52}[AQgw]$"
+      allOf:
+        - if:
+            properties:
+              envelopeType:
+                const: password
+            required: [envelopeType]
+          then:
+            properties:
+              kdfAlgorithm:
+                const: argon2id13
+              kdfParameters:
+                oneOf:
+                  - $ref: "#/components/schemas/Argon2idP1Parameters"
+                  - $ref: "#/components/schemas/Argon2idP4Parameters"
+          else:
+            properties:
+              kdfAlgorithm:
+                const: hkdf-sha256
+              kdfParameters:
+                $ref: "#/components/schemas/EmptyKdfParameters"
+    Argon2idP1Parameters:
+      type: object
+      additionalProperties: false
+      required: [version, memoryKiB, iterations, parallelism]
+      properties:
+        version: { type: integer, const: 19 }
+        memoryKiB: { type: integer, const: 65536 }
+        iterations: { type: integer, const: 3 }
+        parallelism: { type: integer, const: 1 }
+    Argon2idP4Parameters:
+      type: object
+      additionalProperties: false
+      required: [version, memoryKiB, iterations, parallelism]
+      properties:
+        version: { type: integer, const: 19 }
+        memoryKiB: { type: integer, const: 65536 }
+        iterations: { type: integer, const: 3 }
+        parallelism: { type: integer, const: 4 }
+    EmptyKdfParameters:
+      type: object
+      additionalProperties: false
+      maxProperties: 0
+    EncryptedObjectEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          protocolVersion,
+          algorithm,
+          keyWrapAlgorithm,
+          vaultId,
+          objectId,
+          revision,
+          payloadVersion,
+          purpose,
+          nonce,
+          wrappedDek,
+          ciphertext,
+        ]
+      properties:
+        protocolVersion:
+          type: integer
+          const: 1
+        algorithm:
+          type: string
+          const: AES-256-GCM
+        keyWrapAlgorithm:
+          type: string
+          const: AES-256-KW
+        vaultId:
+          type: string
+          format: uuid
+        objectId:
+          type: string
+          format: uuid
+        revision:
+          type: integer
+          minimum: 1
+        payloadVersion:
+          type: integer
+          minimum: 1
+        purpose:
+          type: string
+          minLength: 1
+          maxLength: 32
+          pattern: "^[a-z][a-z0-9-]{0,31}$"
+        nonce:
+          type: string
+          minLength: 16
+          maxLength: 16
+          pattern: "^[A-Za-z0-9_-]{16}$"
+        wrappedDek:
+          type: string
+          minLength: 54
+          maxLength: 54
+          pattern: "^[A-Za-z0-9_-]{52}[AQgw]$"
+        ciphertext:
+          type: string
+          minLength: 22
+          pattern: "^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?$"
+    Base64Url:
+      type: string
+      minLength: 1
+      pattern: "^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2}[AQgw]|[A-Za-z0-9_-]{3}[AEIMQUYcgkosw048])?$"
+    SyncOperation:
+      oneOf:
+        - $ref: "#/components/schemas/SyncUpsertOperation"
+        - $ref: "#/components/schemas/SyncDeleteOperation"
+      discriminator:
+        propertyName: kind
+        mapping:
+          upsert: "#/components/schemas/SyncUpsertOperation"
+          delete: "#/components/schemas/SyncDeleteOperation"
+    SyncUpsertOperation:
+      type: object
+      additionalProperties: false
+      required:
+        [operationId, objectId, kind, baseRevision, envelope, clientCreatedAt]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        objectId:
+          type: string
+          format: uuid
+        kind:
+          const: upsert
+        baseRevision:
+          type: integer
+          minimum: 0
+        envelope:
+          $ref: "#/components/schemas/EncryptedObjectEnvelope"
+        clientCreatedAt:
+          type: string
+          format: date-time
+    SyncDeleteOperation:
+      type: object
+      additionalProperties: false
+      required: [operationId, objectId, kind, baseRevision, clientCreatedAt]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        objectId:
+          type: string
+          format: uuid
+        kind:
+          const: delete
+        baseRevision:
+          type: integer
+          minimum: 1
+        clientCreatedAt:
+          type: string
+          format: date-time
+    SyncOperationResult:
+      type: object
+      additionalProperties: false
+      required: [operationId, sequenceId, currentRevision, accepted]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        sequenceId:
+          type: string
+          pattern: "^[0-9]+$"
+        currentRevision:
+          type: integer
+          minimum: 1
+        accepted:
+          type: boolean
+    SyncEvent:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          sequenceId,
+          operationId,
+          deviceId,
+          objectId,
+          operationKind,
+          baseRevision,
+          newRevision,
+          createdAt,
+        ]
+      properties:
+        sequenceId:
+          type: string
+          pattern: "^[0-9]+$"
+        operationId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        objectId:
+          type: string
+          format: uuid
+        operationKind:
+          type: string
+          enum: [upsert, delete]
+        baseRevision:
+          type: integer
+          minimum: 0
+        newRevision:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+    SyncPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SyncEvent"
+        nextCursor:
+          type: string
+          pattern: "^[0-9]+$"
+        hasMore:
+          type: boolean

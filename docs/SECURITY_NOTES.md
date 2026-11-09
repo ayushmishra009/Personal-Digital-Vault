@@ -1,0 +1,29 @@
+# Security notes
+
+## Current state
+
+- This Phase 1 foundation is not suitable for real vault data.
+- The API exposes health routes only. The OpenAPI contract describes future endpoints; authentication, authorization, and API-level tenant enforcement are not implemented.
+- The Admin frontend is a visible shell, not an authenticated panel yet.
+- Phase 2 crypto-core operations are a partial, unreviewed prototype; Argon2id is only an interface, and stream encryption is not implemented.
+- PostgreSQL and RustFS are development services. Compose binds their published ports to loopback and uses randomly generated local credentials in an ignored `.env`.
+- The Go domain package contains server-safe metadata and ciphertext types. TypeScript decrypted record types are client-only and must never be serialized into API requests.
+- Database tables contain no vault title, record title, URL, category, note, password, decrypted attachment, or key-material columns. Account IDs and composite foreign keys scope relational ownership; handlers must still enforce authorization and account filters when they are added.
+- Phase 1 initially left algorithm and envelope values open. Phase 2 Zod/OpenAPI schemas now describe the proposed v1 format, but there are no API handlers; future handlers must enforce the same constraints and reject unsupported values.
+- Phase 2 has a draft protocol, decision register, vector plan, and unreviewed crypto-core prototype under `docs/architecture/` and `packages/crypto-core/`. The RustCrypto 0.6.0 candidate and a dedicated Worker provider are implemented for validation, not connected to an application flow. Proposed new envelopes use p=4; p=1 remains unlock-only. Primitive vectors are cross-checked between RustCrypto and Go x/crypto and pass Node WASM and Chrome main-thread/Worker harnesses. The deterministic envelope fixture matches across Node and Chrome Web Crypto. Envelope, password-change, migration, recovery-independence, Unicode, and Worker lifecycle tests pass. Independent security review, reproducible-build verification, broader device/browser coverage, and real memory-pressure testing remain outstanding. Argon2id remains **PENDING SECURITY REVIEW**. Do not use this prototype with real data.
+
+## Rules for upcoming work
+
+- Plaintext vault data and encryption keys remain client-side. Never put keys in environment variables.
+- Persist only ciphertext and minimum necessary metadata on server/storage services.
+- Enforce ownership and authorization in backend handlers and database queries.
+- Do not log plaintext, secrets, key material, or full encrypted payloads.
+- Use synthetic data for development and test fixtures.
+- Do not make zero-knowledge, secure, or production-ready claims without verified data-flow evidence and independent review.
+- Treat proposed crypto details as review material. Argon2id still needs independent security and reproducible-build review, broader browser/hardware calibration, and independent envelope-vector verification; attachment stream framing is not implemented.
+
+## Known limitations
+
+Local credentials are convenience credentials, not a production secret-management design. The readiness endpoint checks PostgreSQL only; RustFS is not integrated with the API. RustFS is configured as a single-node development service. The schema does not yet enable row-level security; future handlers must scope every query by authenticated account and add isolation tests. Free-tier services may have usage limits, sleep behavior, policy changes, or no production SLA.
+
+The Argon2 WASM C ABI bounds-checks pointer ranges against linear memory, validates fixed lengths, rejects overlap with the output range, and clears allocated buffers on free. It still relies on the trusted Worker calling `pdv_free` only with the exact live pointer/length pair returned by `pdv_alloc`; Rust cannot prove allocation provenance from a raw exported pointer. Native Rust test execution was blocked in this phase, and `cargo-audit` is not installed. Worker error and size-limit paths are tested, but real allocator exhaustion and Chrome process RSS are not.

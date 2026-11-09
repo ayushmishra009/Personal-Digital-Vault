@@ -1,0 +1,19 @@
+{
+  "name": "@pdv/crypto-core",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worker-provider": "./src/argon2-worker-provider.ts"
+  },
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "node test/envelopes.test.mjs",
+    "test:browser": "node test/run-chrome-provider.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}

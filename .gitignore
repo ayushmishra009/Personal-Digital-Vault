@@ -1,0 +1,29 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dependencies and generated output
+node_modules/
+.turbo/
+.cache/
+**/target/
+**/.cache/
+*.tsbuildinfo
+dist/
+coverage/
+.wxt/
+.output/
+*.log
+
+# Go build output
+apps/api/pdv-api
+apps/api/*.exe
+apps/api/bin/*.exe
+
+# Local development data
+.data/
+infrastructure/docker/data/

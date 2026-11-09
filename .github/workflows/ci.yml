@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm api:generate
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm contract:lint
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test
+
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: pdv_test
+          # Ephemeral GitHub Actions test database only; not a production credential and never to be reused.
+          POSTGRES_PASSWORD: pdv_test_only
+          POSTGRES_DB: pdv_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pdv_test -d pdv_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: Verify migration up and down
+        env:
+          # Uses the same disposable test-service credential; never use outside this job.
+          DATABASE_URL: postgres://pdv_test:pdv_test_only@localhost:5432/pdv_test?sslmode=disable
+        working-directory: apps/api
+        run: |
+          go run ./cmd/migrate up
+          go run ./cmd/migrate down
+          go run ./cmd/migrate up
+      - run: go test ./...
+        working-directory: apps/api
+      - run: go vet ./...
+        working-directory: apps/api
+
+  rust-crypto:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      RUST_TOOLCHAIN: "1.99.1"
+      RUST_TARGET: wasm32-unknown-unknown
+      RUST_CRATE: packages/crypto-core/argon2-wasm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust toolchain and WASM target
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --target "$RUST_TARGET"
+      - name: Verify toolchain and committed lockfile
+        run: |
+          set -euo pipefail
+          rustc_version="$(rustc +"$RUST_TOOLCHAIN" --version | awk '{print $2}')"
+          cargo_version="$(cargo +"$RUST_TOOLCHAIN" --version | awk '{print $2}')"
+          test "$rustc_version" = "$RUST_TOOLCHAIN"
+          test "$cargo_version" = "$RUST_TOOLCHAIN"
+          rustc +"$RUST_TOOLCHAIN" --version --verbose
+          cargo +"$RUST_TOOLCHAIN" --version
+          rustfmt +"$RUST_TOOLCHAIN" --version
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx "$RUST_TARGET"
+          git ls-files --error-unmatch "$RUST_CRATE/Cargo.lock"
+      - name: Check native Rust formatting
+        run: rustfmt +"$RUST_TOOLCHAIN" --check "$RUST_CRATE/src/lib.rs"
+      - name: Run native Rust tests with locked dependencies
+        run: cargo +"$RUST_TOOLCHAIN" test --locked --manifest-path "$RUST_CRATE/Cargo.toml"
+      - name: Build WASM twice from clean target directories and compare hashes
+        id: wasm-repro
+        run: |
+          set -euo pipefail
+          target_a="$(mktemp -d "$RUNNER_TEMP/pdv-wasm-build-a.XXXXXX")"
+          target_b="$(mktemp -d "$RUNNER_TEMP/pdv-wasm-build-b.XXXXXX")"
+          trap 'rm -rf -- "$target_a" "$target_b"' EXIT
+          artifact_a="$target_a/$RUST_TARGET/release/pdv_argon2_wasm_candidate.wasm"
+          artifact_b="$target_b/$RUST_TARGET/release/pdv_argon2_wasm_candidate.wasm"
+          CARGO_TARGET_DIR="$target_a" cargo +"$RUST_TOOLCHAIN" build --locked --release --target "$RUST_TARGET" --manifest-path "$RUST_CRATE/Cargo.toml"
+          CARGO_TARGET_DIR="$target_b" cargo +"$RUST_TOOLCHAIN" build --locked --release --target "$RUST_TARGET" --manifest-path "$RUST_CRATE/Cargo.toml"
+          hash_a="$(sha256sum "$artifact_a" | awk '{print $1}')"
+          hash_b="$(sha256sum "$artifact_b" | awk '{print $1}')"
+          comparison="FAIL"
+          if test "$hash_a" = "$hash_b"; then comparison="PASS"; fi
+          echo "build_a_sha256=$hash_a" >> "$GITHUB_OUTPUT"
+          echo "build_b_sha256=$hash_b" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Rust/WASM validation"
+            echo "- Runner: ubuntu-24.04"
+            echo "- Rust toolchain: $RUST_TOOLCHAIN"
+            echo "- WASM target: $RUST_TARGET"
+            echo "- Dependency mode: Cargo.lock with --locked; no feature overrides"
+            echo "- Formatting: rustfmt +$RUST_TOOLCHAIN --check $RUST_CRATE/src/lib.rs (PASS)"
+            echo "- Native tests: cargo +$RUST_TOOLCHAIN test --locked --manifest-path $RUST_CRATE/Cargo.toml (PASS)"
+            echo "- WASM build, run twice: cargo +$RUST_TOOLCHAIN build --locked --release --target $RUST_TARGET --manifest-path $RUST_CRATE/Cargo.toml"
+            echo "- Build A SHA-256: $hash_a"
+            echo "- Build B SHA-256: $hash_b"
+            echo "- Reproducibility comparison: $comparison"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$comparison" = "PASS"

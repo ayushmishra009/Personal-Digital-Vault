@@ -1,0 +1,35 @@
+{
+  "name": "personal-digital-vault",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "dev": "dotenv -e .env -- turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "api:generate": "pnpm --filter @pdv/api-client generate && pnpm exec prettier --write packages/api-client/src/generated.ts",
+    "contract:lint": "pnpm --filter @pdv/api-client exec redocly lint --config ../../redocly.yaml ../../contracts/openapi.yaml",
+    "db:migrate": "dotenv -e .env -- pnpm --filter @pdv/api db:up",
+    "db:rollback": "dotenv -e .env -- pnpm --filter @pdv/api db:down",
+    "dev:services:up": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-services.ps1 up",
+    "dev:services:down": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-services.ps1 down",
+    "dev:services:logs": "docker compose --env-file .env -f infrastructure/docker/compose.yaml logs -f",
+    "dev:api": "dotenv -e .env -- pnpm --filter @pdv/api dev"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^11.0.0",
+    "@redocly/cli": "^2.73.0",
+    "eslint": "^10.14.0",
+    "prettier": "^3.6.2",
+    "turbo": "^2.5.6",
+    "typescript-eslint": "^8.0.0"
+  }
+}

@@ -1,0 +1,5 @@
+PERSONAL_DIGITAL_VAULT_MASTER_BUILD_SPEC_v1.1.md
+.git/
+node_modules/
+pnpm-lock.yaml
+apps/api/
