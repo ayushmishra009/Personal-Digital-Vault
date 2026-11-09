@@ -7,7 +7,7 @@
     "dev": "wxt --browser chrome",
     "build": "wxt build --browser chrome",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "wxt prepare && tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
