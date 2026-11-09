@@ -6,6 +6,7 @@ on:
 
 jobs:
   frontend:
+    needs: rust-crypto
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +24,11 @@ jobs:
       - run: pnpm contract:lint
       - run: pnpm typecheck
       - run: pnpm build
+      - name: Download validated crypto WASM test artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pdv-argon2-wasm-candidate
+          path: packages/crypto-core/argon2-wasm/target/wasm32-unknown-unknown/release
       - run: pnpm test
 
   backend:
@@ -108,6 +114,8 @@ jobs:
           if test "$hash_a" = "$hash_b"; then comparison="PASS"; fi
           echo "build_a_sha256=$hash_a" >> "$GITHUB_OUTPUT"
           echo "build_b_sha256=$hash_b" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUST_CRATE/target/$RUST_TARGET/release"
+          cp "$artifact_a" "$RUST_CRATE/target/$RUST_TARGET/release/pdv_argon2_wasm_candidate.wasm"
           {
             echo "### Rust/WASM validation"
             echo "- Runner: ubuntu-24.04"
@@ -122,3 +130,9 @@ jobs:
             echo "- Reproducibility comparison: $comparison"
           } >> "$GITHUB_STEP_SUMMARY"
           test "$comparison" = "PASS"
+      - name: Upload validated crypto WASM test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdv-argon2-wasm-candidate
+          path: packages/crypto-core/argon2-wasm/target/wasm32-unknown-unknown/release/pdv_argon2_wasm_candidate.wasm
+          if-no-files-found: error
