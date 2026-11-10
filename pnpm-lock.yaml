@@ -230,6 +230,15 @@ importers:
 
   apps/extension:
     dependencies:
+      '@pdv/crypto-core':
+        specifier: workspace:*
+        version: link:../../packages/crypto-core
+      '@pdv/data-models':
+        specifier: workspace:*
+        version: link:../../packages/data-models
+      '@pdv/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
       '@vitejs/plugin-react':
         specifier: ^5.0.0
         version: 5.2.0(supports-color@10.2.2)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.27.7)(jiti@2.7.0))

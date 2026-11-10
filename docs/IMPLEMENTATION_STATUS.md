@@ -242,19 +242,49 @@ The repository contained only the master build specification and Git metadata. N
   - UI integration: `RestoreStagingModal` interactive review table with conflict warnings, selection toggles, and overwrite checkbox; `RecoveryView` with guidance on browser storage limitations and backup metadata leakage disclosure.
   - Vitest tests: 35 passing tests in `apps/vault-web` (including 5 backup tests and `RestoreStagingModal.test.tsx`).
 
+## Phase 11 scope delivered
+
+- Chrome Manifest V3 extension (`apps/extension`):
+  - Built with WXT, Vite, React 19, and TypeScript.
+  - Manifest V3 architecture with minimal privileges: permissions `["storage", "activeTab", "scripting"]`, explicit localhost host permissions, and CSP `script-src 'self' 'wasm-unsafe-eval'; object-src 'self';`.
+- Background Service Worker (`entrypoints/background.ts` & `src/session.ts`):
+  - In-memory `SessionManager` managing volatile vault lifecycle: unlock with master password (Argon2id KDF) or 256-bit recovery secret (HKDF-SHA256).
+  - Volatile zeroization: Locking immediately clears unlocked keys and zeroes decrypted records cache.
+  - Typed messaging handling `GET_STATUS`, `UNLOCK_VAULT`, `LOCK_VAULT`, `LIST_CREDENTIALS`, `CHECK_DOMAIN_MATCH`, `REQUEST_FILL`, `GET_ALLOWLIST`, `ADD_ALLOWLIST`, `REMOVE_ALLOWLIST`, and `SEED_VAULT`.
+  - Zero credential logging: All console methods (`log`, `info`, `warn`, `error`) are strictly sanitized of passwords, recovery secrets, and key material.
+- Untrusted Content Script & Frame Boundary Isolation (`entrypoints/content.ts`):
+  - Restricts execution strictly to top-level frames (`allFrames: false` in manifest and definition), preventing script execution in hostile third-party or cross-origin iframes.
+  - Top-level frame targeting: Background worker targets strictly `{ frameId: 0 }` during fill dispatch.
+  - Key withholding: VEK, DEK, and unrestricted decrypted collections are never sent to the content script or page DOM. Only the single user-approved credential pair is dispatched.
+- Origin Matching & Anti-Spoofing Utilities (`src/utils/origin.ts`):
+  - `normalizeOrigin`, `extractHostname`, `matchesDomain`, and `isAllowedOrigin`.
+  - Validates exact hostnames and valid dot-prefixed subdomains.
+  - Strictly rejects substring spoofing (`evil-example.com`), suffix spoofing (`example.com.attacker.com`), and non-web schemes (`chrome://`, `file://`, `javascript:`).
+- Manual Fill & Non-Submission Safety (`src/utils/dom-fill.ts`):
+  - Locates password and username inputs; updates values using prototype setters to trigger React/Vue synthetic events.
+  - Strictly non-submitting: Form auto-submission (`form.submit()` or simulated enter keypresses) is prohibited.
+- User-Approved Popup UI (`entrypoints/popup/`):
+  - Header with shield icon, active tab domain pill, and quick lock button.
+  - Locked view: Master password / recovery secret unlock inputs and demo seed action.
+  - Unlocked view: Search bar, prioritized domain matching credential cards, and allowlist manager.
+  - Domain mismatch warning screen: Prominently warns when credential domain differs from active tab origin; enforces explicit user risk acknowledgment checkbox before enabling fill.
+- Automated tests:
+  - 18 passing tests in `apps/extension` (`extension.test.ts`, `popup.test.tsx`) verifying origin matching, hostile domain rejection, DOM fill without submission, session unlock/lock zeroization, domain mismatch blocking, zero credential logging, and UI rendering.
+
 ## Not implemented
 
-Chrome extension (Phase 11) and release hardening (Phase 12) are not implemented.
+Release candidate hardening and production checklist (Phase 12) are not implemented.
 
 ## Verification
 
-- `npx turbo run build test` passed across all workspace packages and apps (9/9 tasks successful).
+- `npx turbo run build test` passed across all workspace packages and apps.
 - `npx prettier --write .` and `npx eslint .` passed with 0 errors.
 - Go backend unit tests (`internal/auth`, `internal/database`, `internal/router`) passed 100%.
 - Client vault, storage, view, sync engine, attachment, and backup Vitest tests passed 100% (35/35 tests passing in `vault-web`).
+- Extension Vitest tests passed 100% (18/18 tests passing in `apps/extension`).
 - Crypto-core envelopes, attachment stream, and backup package tests passed 100% (18/18 tests passing).
 - TypeScript packages and apps typecheck cleanly with 0 errors.
 
 ## Next phase
 
-Phase 11 — Chrome Extension: MV3 manifest, popup and service worker, secure extension authentication session model, origin allowlist, manual credential autofill, domain mismatch warnings, and minimal permissions.
+Phase 12 — Hardening and release candidate: Security review, dependency audit, threat-model update, CSP and browser security headers, rate limits and quotas, backup/restore tests, data deletion and retention behavior, production deployment documentation, user-facing security limitations, and release checklist.

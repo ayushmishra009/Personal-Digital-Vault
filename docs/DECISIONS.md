@@ -208,3 +208,36 @@ Reference: [RustFS 1.0.4 release](https://github.com/rustfs/rustfs/releases) and
    - Endpoints: `POST /api/v1/vaults/{vaultId}/backup/metadata` and `GET /api/v1/vaults/{vaultId}/backup/metadata`.
    - Backend receives strictly opaque snapshot metadata (size, hash, timestamp) for backup history and compliance; plaintext records and backup payloads never touch the server.<br>
      **Reason:** Fulfills Section 13 ("BACKUP AND RESTORE") and Phase 10 acceptance criteria of the Master Build Spec. Ensures complete zero-knowledge data portability, clean-browser recovery, tamper rejection, and data loss prevention during restoration.
+
+## ADR-0018: Chrome Manifest V3 Extension Security Architecture & Manual Fill Boundary
+
+**Status:** Accepted for Phase 11<br>
+**Decision:** Implement browser extension using Chrome Manifest V3 (MV3), WXT, React, and TypeScript with strict origin matching, top-level frame restriction, volatile session zeroization, manual credential filling without auto-submission, and clear domain mismatch warnings:
+
+1. **Manifest V3 & Minimal Extension Permissions:**
+   - Framework: WXT + Vite + React 19 + TypeScript.
+   - Declarative Permissions: `["storage", "activeTab", "scripting"]`.
+   - Host Permissions: Explicit localhost origins only (`["http://localhost:8080/*", "http://127.0.0.1:8080/*"]`).
+   - Content Security Policy: `script-src 'self' 'wasm-unsafe-eval'; object-src 'self';` enabling reviewed WebAssembly Argon2id KDF execution inside extension contexts while preventing unsafe string evaluation or external script inclusion.
+2. **Untrusted Content Script & Frame Boundary Isolation:**
+   - Content script declared with `allFrames: false` in manifest and definition, strictly preventing script injection into cross-origin or third-party iframes.
+   - Content script message listener accepts only targeted `PDV_FILL_CREDENTIALS` and `PDV_DETECT_FORM` actions.
+   - Background service worker strictly targets top-level tab context (`frameId: 0`) when dispatching fill payloads.
+   - VEKs, DEKs, master passwords, recovery secrets, and unrequested decrypted record collections are strictly withheld from the content script and web page DOM. Only the single credential pair explicitly requested by the user is dispatched.
+3. **Strict Origin Allowlisting & Anti-Spoofing Matching:**
+   - Origin and hostname utilities (`apps/extension/src/utils/origin.ts`) normalize URLs and enforce strict dot-separated domain boundaries.
+   - Exact domain matches (`recordHost === currentHost`) and valid hierarchical subdomains (`currentHost.endsWith("." + recordHost)`) are accepted.
+   - Loose substring matching and suffix spoofing attacks (e.g., `evil-example.com`, `example.com.attacker.com`, `notexample.com`) are strictly rejected.
+   - Custom origin allowlist managed via user-approved additions stored in extension local storage.
+4. **Manual Fill & Non-Submission Safety:**
+   - Automatic background form autofill is disabled; credential fill occurs solely after explicit user activation in the extension popup.
+   - Prototype value setters trigger React/Vue synthetic events without executing automatic form submissions (`form.submit()` or simulated enter key events are strictly omitted).
+5. **Clear Domain Mismatch Security Warning Screen:**
+   - When a user requests filling a credential whose saved URL differs from the active browser tab hostname, filling is immediately blocked.
+   - The popup displays a prominent red/amber security alert comparing the active page hostname against the credential's registered origin.
+   - Filling across mismatched domains requires an explicit user confirmation checkbox (`[ ] I understand the risk...`) before the "Fill Anyway" button is unlocked.
+6. **Volatile Session Zeroization & Zero Logging:**
+   - Master keys and decrypted vault records are maintained exclusively in volatile service worker memory (`SessionManager`).
+   - Extension lock immediately sets `unlockedVek = null` and zeroes decrypted records cache.
+   - Plaintext passwords, recovery secrets, and cryptographic keys are strictly excluded from `console.log`, `console.info`, `console.warn`, and `console.error` across all extension contexts.<br>
+     **Reason:** Fulfills Section H ("Chrome extension") and Phase 11 acceptance criteria of the Master Build Spec. Protects against hostile web origins, phishing, cross-origin iframe attacks, credential leakage, and key exposure.

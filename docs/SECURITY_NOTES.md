@@ -48,6 +48,16 @@
 - Phase 1 initially left algorithm and envelope values open. Phase 2 Zod/OpenAPI schemas now describe the proposed v1 format, but there are no API handlers; future handlers must enforce the same constraints and reject unsupported values.
 - Phase 2 has a draft protocol, decision register, vector plan, and unreviewed crypto-core prototype under `docs/architecture/` and `packages/crypto-core/`. The RustCrypto 0.6.0 candidate and a dedicated Worker provider are implemented for validation, not connected to an application flow. Proposed new envelopes use p=4; p=1 remains unlock-only. Primitive vectors are cross-checked between RustCrypto and Go x/crypto and pass Node WASM and Chrome main-thread/Worker harnesses. The deterministic envelope fixture matches across Node and Chrome Web Crypto. Envelope, password-change, migration, recovery-independence, Unicode, and Worker lifecycle tests pass. Independent security review, reproducible-build verification, broader device/browser coverage, and real memory-pressure testing remain outstanding. Argon2id remains **PENDING SECURITY REVIEW**. Do not use this prototype with real data.
 
+## Chrome extension security boundaries (Phase 11)
+
+- **Untrusted Content Script Boundary:** Content scripts operate in untrusted web page contexts and are explicitly restricted to top-level frames (`allFrames: false`). Cryptographic keys (VEK, DEK, Argon2id KEK, raw recovery secrets) and unrequested decrypted records are never sent to content scripts or exposed to page scripts.
+- **Top-Level Frame Dispatch Only:** When manual credential fill is requested, the background service worker targets strictly `frameId: 0` (`browser.tabs.sendMessage(tab.id, ..., { frameId: 0 })`), preventing credential injection into cross-origin or third-party iframes.
+- **Strict Origin Matching & Anti-Spoofing:** Hostnames are strictly matched on dot-delimited boundaries (`extractHostname` and `matchesDomain`). Loose substring checks (`indexOf`, `includes`) and suffix spoofing attacks (`evil-github.com`, `github.com.attacker.com`) fail domain verification.
+- **Domain Mismatch Protection:** Credentials whose registered origin differs from the active tab hostname are blocked from filling by default. Filling across mismatched origins requires explicit user acknowledgment on the warning screen.
+- **No Automatic Form Submission:** The extension only populates form field values via prototype setters for framework compatibility; it never executes `form.submit()` or simulates enter key events.
+- **Volatile Session Zeroization:** Cryptographic keys and decrypted credential models are held in volatile service worker memory only. Locking the vault clears memory and zeroes cached references.
+- **Zero Credential Logging:** Console output across all extension contexts is strictly sanitized to prevent leakage of master passwords, recovery keys, or credentials into developer tools or log capture.
+
 ## Rules for upcoming work
 
 - Plaintext vault data and encryption keys remain client-side. Never put keys in environment variables.

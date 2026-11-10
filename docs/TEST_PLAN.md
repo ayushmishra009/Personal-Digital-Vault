@@ -224,6 +224,43 @@ All Phase 6 verification targets pass in `apps/api/internal/router` (`TestCmsEnd
   - `RestoreStagingModal.test.tsx`: Verifies staging table render, summary counts, conflict safeguard warning banner, and force overwrite checkbox.
   - Total 35 Vitest tests passing in `apps/vault-web`.
 
+## Phase 11 Chrome extension verification targets
+
+- Verify origin allowlisting & hostile origin rejection (`apps/extension/src/extension.test.ts`):
+  - `normalizeOrigin` extracts protocol and origin; rejects invalid schemes (`javascript:`, `data:`).
+  - `extractHostname` extracts hostname; rejects invalid/bare hosts without dots (except `localhost`).
+  - `matchesDomain`:
+    - Validates exact host match (`recordHost === currentHost`).
+    - Validates hierarchical subdomains (`sub.example.com` matches `example.com`).
+    - Strictly rejects loose substring matching (e.g. `evil-github.com` vs `github.com`).
+    - Strictly rejects suffix spoofing (e.g. `github.com.attacker.com` vs `github.com`).
+    - Strictly rejects embedded substring spoofing (`notexample.com` vs `example.com`).
+  - `isAllowedOrigin` verifies custom allowed origin allowlists.
+- Verify DOM credential filling & non-submission safety (`apps/extension/src/extension.test.ts`):
+  - Fills username and password inputs; triggers synthetic `input` and `change` events.
+  - Non-submission guarantee: Asserts that `form.submit` is NEVER invoked and no form submission occurs.
+  - Gracefully returns `{ success: false }` when no login form exists on the page.
+- Verify extension session management & volatile zeroization (`apps/extension/src/extension.test.ts`):
+  - Starts in locked state (`isUnlocked: false`, `decryptedRecords: []`).
+  - Unlocks with valid master password and Argon2id KDF.
+  - Unlocks with 256-bit recovery secret and HKDF-SHA256.
+  - Rejects wrong master password and remains locked.
+  - Credential listing: Returns sanitized `CredentialSummary[]`; strictly verifies that `password` fields are never included in list summaries.
+  - Prioritizes credentials matching the current tab's active domain.
+  - Domain mismatch enforcement:
+    - Attempting to fill a credential on an unmatching origin (`https://evil-phishing.com` vs `github.com`) throws a domain mismatch error when `allowMismatch: false`.
+    - Filling on an unmatching origin succeeds only when `allowMismatch: true` (explicit user confirmation).
+    - Rejects filling on non-web schemes (`chrome://settings`).
+  - Volatile zeroization: Calling `session.lock()` immediately clears keys, zeroes decrypted cache, and blocks subsequent fills.
+- Verify zero credential logging (`apps/extension/src/extension.test.ts`):
+  - Spies on `console.log`, `console.info`, `console.warn`, and `console.error`.
+  - Verifies that zero passwords, recovery secrets, or raw keys are logged across unlock, listing, fill, or error flows.
+- Verify content script frame boundary (`apps/extension/src/extension.test.ts`):
+  - Content script definition strictly enforces `allFrames: false` (top-level browsing context only; no injection into child or cross-origin iframes).
+- Verify popup UI rendering (`apps/extension/src/popup.test.tsx`):
+  - Renders locked view with master password input, unlock button, and demo vault seed option.
+  - Total 18 Vitest tests passing in `apps/extension`.
+
 ## Later security and product coverage
 
 Follow the master specification's crypto known-answer and negative tests, backend authorization/tenant isolation tests, offline/conflict tests, CMS schema/revision tests, attachment ciphertext checks, extension origin-boundary tests, and end-to-end flows. Round-trip crypto tests alone are insufficient. Do not use production data in tests.
