@@ -820,3 +820,332 @@ func TestCmsTenantIsolation(t *testing.T) {
 		t.Errorf("expected 404 for cross-tenant section delete, got %d", recCrossDelete.Code)
 	}
 }
+
+func registerAndGetCookie(t *testing.T, h http.Handler, email string) (*http.Cookie, string) {
+	t.Helper()
+	pub := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{42}, 32))
+	regReq := handlers.RegisterRequest{
+		Email:              email,
+		DeviceLabel:        "Test Device",
+		Platform:           "Web",
+		Browser:            "Chrome",
+		PublicKeyAlgorithm: "Ed25519",
+		PublicKey:          pub,
+		CredentialType:     "external",
+		CredentialID:       "cred-" + email,
+	}
+	rec := doRequest(h, "POST", "/api/v1/auth/register", regReq, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to register account %s: %d", email, rec.Code)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatalf("no cookie returned for registration")
+	}
+	return cookies[0], pub
+}
+
+func TestSyncEngineAndConflictResolution(t *testing.T) {
+	h, _ := setupTestServer()
+
+	cookie, _ := registerAndGetCookie(t, h, "sync-user@example.com")
+
+	// Create Vault
+	salt := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16))
+	wrapped := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{2}, 40))
+	vaultReq := handlers.CreateVaultRequest{
+		ProtocolVersion: 1,
+		Envelopes: []handlers.VaultKeyEnvelopeDTO{
+			{
+				EnvelopeType:     "password",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "argon2id13",
+				KDFParameters: map[string]int64{
+					"parallelism": 4,
+					"memoryKiB":   65536,
+					"iterations":  3,
+					"version":     19,
+				},
+				Salt:       salt,
+				WrappedVEK: wrapped,
+			},
+			{
+				EnvelopeType:     "recovery",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "hkdf-sha256",
+				Salt:             salt,
+				WrappedVEK:       wrapped,
+			},
+		},
+	}
+	recVault := doRequest(h, "POST", "/api/v1/vaults", vaultReq, cookie)
+	if recVault.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for vault creation, got %d", recVault.Code)
+	}
+	var createdVault domain.Vault
+	_ = json.Unmarshal(recVault.Body.Bytes(), &createdVault)
+	vaultID := createdVault.ID
+
+	nonce := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{3}, 12))
+	wrappedDek := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{4}, 40))
+	ct1 := base64.RawURLEncoding.EncodeToString([]byte("encrypted-payload-revision-1"))
+
+	// 1. Submit initial upsert (baseRevision: 0)
+	upsertReq1 := handlers.SyncOperationDTO{
+		OperationID:     "op-0001",
+		ObjectID:        "obj-0001",
+		Kind:            "upsert",
+		BaseRevision:    0,
+		ClientCreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Envelope: &handlers.EncryptedObjectEnvelopeDTO{
+			ProtocolVersion:  1,
+			Algorithm:        "AES-256-GCM",
+			KeyWrapAlgorithm: "AES-256-KW",
+			PayloadVersion:   1,
+			Purpose:          "vault-record",
+			Nonce:            nonce,
+			WrappedDEK:       wrappedDek,
+			Ciphertext:       ct1,
+		},
+	}
+	recOp1 := doRequest(h, "POST", "/api/v1/vaults/"+vaultID+"/sync/operations", upsertReq1, cookie)
+	if recOp1.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for upsert op1, got %d: %s", recOp1.Code, recOp1.Body.String())
+	}
+	var res1 domain.SyncOperationResult
+	_ = json.Unmarshal(recOp1.Body.Bytes(), &res1)
+	if !res1.Accepted || res1.CurrentRevision != 1 || res1.SequenceID != "1" {
+		t.Fatalf("unexpected res1: %+v", res1)
+	}
+
+	// 2. Idempotency replay with same operationID -> must return 201 with identical result
+	recReplay := doRequest(h, "POST", "/api/v1/vaults/"+vaultID+"/sync/operations", upsertReq1, cookie)
+	if recReplay.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for idempotent replay, got %d", recReplay.Code)
+	}
+	var resReplay domain.SyncOperationResult
+	_ = json.Unmarshal(recReplay.Body.Bytes(), &resReplay)
+	if resReplay.CurrentRevision != 1 || resReplay.SequenceID != "1" {
+		t.Fatalf("unexpected resReplay: %+v", resReplay)
+	}
+
+	// 3. Conflict detection: submitting with baseRevision: 0 when object is already at revision 1 -> 409 Conflict
+	conflictReq := handlers.SyncOperationDTO{
+		OperationID:     "op-0002",
+		ObjectID:        "obj-0001",
+		Kind:            "upsert",
+		BaseRevision:    0, // Mismatch!
+		ClientCreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Envelope: &handlers.EncryptedObjectEnvelopeDTO{
+			ProtocolVersion:  1,
+			Algorithm:        "AES-256-GCM",
+			KeyWrapAlgorithm: "AES-256-KW",
+			PayloadVersion:   1,
+			Purpose:          "vault-record",
+			Nonce:            nonce,
+			WrappedDEK:       wrappedDek,
+			Ciphertext:       ct1,
+		},
+	}
+	recConflict := doRequest(h, "POST", "/api/v1/vaults/"+vaultID+"/sync/operations", conflictReq, cookie)
+	if recConflict.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for stale baseRevision, got %d: %s", recConflict.Code, recConflict.Body.String())
+	}
+	var prob handlers.Problem
+	_ = json.Unmarshal(recConflict.Body.Bytes(), &prob)
+	if prob.Error == nil || prob.Error.Details == nil || *prob.Error.Details.CurrentRevision != 1 {
+		t.Fatalf("expected conflict details in problem response, got: %+v", prob)
+	}
+
+	// 4. Progress revision: submit with baseRevision: 1
+	ct2 := base64.RawURLEncoding.EncodeToString([]byte("encrypted-payload-revision-2"))
+	upsertReq2 := handlers.SyncOperationDTO{
+		OperationID:     "op-0003",
+		ObjectID:        "obj-0001",
+		Kind:            "upsert",
+		BaseRevision:    1,
+		ClientCreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Envelope: &handlers.EncryptedObjectEnvelopeDTO{
+			ProtocolVersion:  1,
+			Algorithm:        "AES-256-GCM",
+			KeyWrapAlgorithm: "AES-256-KW",
+			PayloadVersion:   1,
+			Purpose:          "vault-record",
+			Nonce:            nonce,
+			WrappedDEK:       wrappedDek,
+			Ciphertext:       ct2,
+		},
+	}
+	recOp2 := doRequest(h, "POST", "/api/v1/vaults/"+vaultID+"/sync/operations", upsertReq2, cookie)
+	if recOp2.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for upsert op2, got %d", recOp2.Code)
+	}
+	var res2 domain.SyncOperationResult
+	_ = json.Unmarshal(recOp2.Body.Bytes(), &res2)
+	if res2.CurrentRevision != 2 || res2.SequenceID != "2" {
+		t.Fatalf("expected rev 2 and seq 2, got: %+v", res2)
+	}
+
+	// 5. Get encrypted object revision
+	recGetObj := doRequest(h, "GET", "/api/v1/vaults/"+vaultID+"/objects/obj-0001", nil, cookie)
+	if recGetObj.Code != http.StatusOK {
+		t.Fatalf("expected 200 for get object, got %d", recGetObj.Code)
+	}
+	var envDTO handlers.EncryptedObjectEnvelopeDTO
+	_ = json.Unmarshal(recGetObj.Body.Bytes(), &envDTO)
+	if envDTO.Ciphertext != ct2 {
+		t.Fatalf("expected latest ciphertext ct2, got: %s", envDTO.Ciphertext)
+	}
+
+	// Get historical revision 1
+	recGetRev1 := doRequest(h, "GET", "/api/v1/vaults/"+vaultID+"/objects/obj-0001?revision=1", nil, cookie)
+	if recGetRev1.Code != http.StatusOK {
+		t.Fatalf("expected 200 for historical revision 1, got %d", recGetRev1.Code)
+	}
+	var envRev1 handlers.EncryptedObjectEnvelopeDTO
+	_ = json.Unmarshal(recGetRev1.Body.Bytes(), &envRev1)
+	if envRev1.Ciphertext != ct1 {
+		t.Fatalf("expected historical ciphertext ct1, got: %s", envRev1.Ciphertext)
+	}
+
+	// 6. Optimistic direct PUT object
+	reqPut := handlers.EncryptedObjectEnvelopeDTO{
+		ProtocolVersion:  1,
+		Algorithm:        "AES-256-GCM",
+		KeyWrapAlgorithm: "AES-256-KW",
+		PayloadVersion:   1,
+		Purpose:          "vault-record",
+		Nonce:            nonce,
+		WrappedDEK:       wrappedDek,
+		Ciphertext:       ct1,
+	}
+	reqPutHTTP := httptest.NewRequest("PUT", "/api/v1/vaults/"+vaultID+"/objects/obj-0002", bytes.NewBufferString(`{
+		"protocolVersion": 1,
+		"algorithm": "AES-256-GCM",
+		"keyWrapAlgorithm": "AES-256-KW",
+		"payloadVersion": 1,
+		"purpose": "vault-record",
+		"nonce": "`+nonce+`",
+		"wrappedDek": "`+wrappedDek+`",
+		"ciphertext": "`+ct1+`"
+	}`))
+	reqPutHTTP.Header.Set("Content-Type", "application/json")
+	reqPutHTTP.Header.Set("If-Match-Revision", "0")
+	reqPutHTTP.AddCookie(cookie)
+	recPut := httptest.NewRecorder()
+	h.ServeHTTP(recPut, reqPutHTTP)
+	if recPut.Code != http.StatusOK {
+		t.Fatalf("expected 200 for direct PUT object, got %d: %s", recPut.Code, recPut.Body.String())
+	}
+
+	// 7. Delete tombstone operation
+	deleteReq := handlers.SyncOperationDTO{
+		OperationID:     "op-0004",
+		ObjectID:        "obj-0001",
+		Kind:            "delete",
+		BaseRevision:    2,
+		ClientCreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	recDel := doRequest(h, "POST", "/api/v1/vaults/"+vaultID+"/sync/operations", deleteReq, cookie)
+	if recDel.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for delete tombstone, got %d", recDel.Code)
+	}
+	var resDel domain.SyncOperationResult
+	_ = json.Unmarshal(recDel.Body.Bytes(), &resDel)
+	if resDel.CurrentRevision != 3 {
+		t.Fatalf("expected rev 3 for tombstone, got %d", resDel.CurrentRevision)
+	}
+
+	// Deleted object lookup returns 404
+	recGetDeleted := doRequest(h, "GET", "/api/v1/vaults/"+vaultID+"/objects/obj-0001", nil, cookie)
+	if recGetDeleted.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for deleted object, got %d", recGetDeleted.Code)
+	}
+
+	// 8. List sync events with cursor pagination
+	recSyncPage1 := doRequest(h, "GET", "/api/v1/vaults/"+vaultID+"/sync?after=0&limit=2", nil, cookie)
+	if recSyncPage1.Code != http.StatusOK {
+		t.Fatalf("expected 200 for sync page 1, got %d", recSyncPage1.Code)
+	}
+	var page1 handlers.SyncPageDTO
+	_ = json.Unmarshal(recSyncPage1.Body.Bytes(), &page1)
+	if len(page1.Items) != 2 || !page1.HasMore || page1.NextCursor != "2" {
+		t.Fatalf("unexpected sync page 1: %+v", page1)
+	}
+
+	recSyncPage2 := doRequest(h, "GET", "/api/v1/vaults/"+vaultID+"/sync?after=2&limit=10", nil, cookie)
+	if recSyncPage2.Code != http.StatusOK {
+		t.Fatalf("expected 200 for sync page 2, got %d", recSyncPage2.Code)
+	}
+	var page2 handlers.SyncPageDTO
+	_ = json.Unmarshal(recSyncPage2.Body.Bytes(), &page2)
+	if len(page2.Items) != 2 || page2.HasMore {
+		t.Fatalf("unexpected sync page 2: %+v", page2)
+	}
+	_ = reqPut
+}
+
+func TestSyncTenantIsolation(t *testing.T) {
+	h, _ := setupTestServer()
+
+	cookieA, _ := registerAndGetCookie(t, h, "user-a@example.com")
+	cookieB, _ := registerAndGetCookie(t, h, "user-b@example.com")
+
+	salt := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16))
+	wrapped := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{2}, 40))
+	recVaultA := doRequest(h, "POST", "/api/v1/vaults", handlers.CreateVaultRequest{
+		ProtocolVersion: 1,
+		Envelopes: []handlers.VaultKeyEnvelopeDTO{
+			{
+				EnvelopeType:     "password",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "argon2id13",
+				KDFParameters: map[string]int64{
+					"parallelism": 4,
+					"memoryKiB":   65536,
+					"iterations":  3,
+					"version":     19,
+				},
+				Salt:       salt,
+				WrappedVEK: wrapped,
+			},
+			{
+				EnvelopeType:     "recovery",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "hkdf-sha256",
+				Salt:             salt,
+				WrappedVEK:       wrapped,
+			},
+		},
+	}, cookieA)
+	var vaultA domain.Vault
+	_ = json.Unmarshal(recVaultA.Body.Bytes(), &vaultA)
+
+	// User B attempts to access User A's sync events -> 404
+	recSyncB := doRequest(h, "GET", "/api/v1/vaults/"+vaultA.ID+"/sync", nil, cookieB)
+	if recSyncB.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-tenant sync events, got %d", recSyncB.Code)
+	}
+
+	// User B attempts to submit sync operation on User A's vault -> 404
+	recSubmitB := doRequest(h, "POST", "/api/v1/vaults/"+vaultA.ID+"/sync/operations", handlers.SyncOperationDTO{
+		OperationID:     "op-b-malicious",
+		ObjectID:        "obj-b-malicious",
+		Kind:            "delete",
+		BaseRevision:    0,
+		ClientCreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}, cookieB)
+	if recSubmitB.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-tenant sync submission, got %d", recSubmitB.Code)
+	}
+
+	// User B attempts to fetch object from User A's vault -> 404
+	recGetObjB := doRequest(h, "GET", "/api/v1/vaults/"+vaultA.ID+"/objects/any-obj", nil, cookieB)
+	if recGetObjB.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-tenant get object, got %d", recGetObjB.Code)
+	}
+}

@@ -104,6 +104,20 @@ export class EncryptedRecordRepository {
   }
 
   /**
+   * Decrypt an arbitrary encrypted object envelope using the active VEK.
+   */
+  async openRecord(
+    envelope: EncryptedObjectEnvelope,
+    vek: CryptoKey,
+  ): Promise<DecryptedRecord> {
+    const decrypted = await openObject(
+      vek,
+      envelope as unknown as ObjectEnvelope,
+    );
+    return DecryptedRecordSchema.parse(decrypted) as DecryptedRecord;
+  }
+
+  /**
    * List and decrypt all records for a vault. Decryption happens locally in volatile memory.
    */
   async listRecords(
@@ -175,6 +189,41 @@ export class EncryptedRecordRepository {
   }
 
   /**
+   * Get raw encrypted record from database.
+   */
+  async getStoredRecord(
+    vaultId: string,
+    objectId: string,
+  ): Promise<StoredEncryptedRecord | null> {
+    return this.db.getRecord(vaultId, objectId);
+  }
+
+  /**
+   * Delete a pending operation after successful sync.
+   */
+  async deletePendingOperation(operationId: string): Promise<void> {
+    return this.db.deletePendingOperation(operationId);
+  }
+
+  /**
+   * Get sync state cursor for a vault.
+   */
+  async getSyncState(vaultId: string) {
+    return this.db.getSyncState(vaultId);
+  }
+
+  /**
+   * Save sync state cursor for a vault.
+   */
+  async putSyncState(vaultId: string, lastSyncSequence: string) {
+    return this.db.putSyncState({
+      vaultId,
+      lastSyncSequence,
+      lastSyncedAt: new Date().toISOString(),
+    });
+  }
+
+  /**
    * Clear all local stores.
    */
   async clear(): Promise<void> {
@@ -222,4 +271,12 @@ export function searchDecryptedRecords(
     }
     return false;
   });
+}
+
+let defaultRepoInstance: EncryptedRecordRepository | null = null;
+export function getRecordRepository(): EncryptedRecordRepository {
+  if (!defaultRepoInstance) {
+    defaultRepoInstance = new EncryptedRecordRepository();
+  }
+  return defaultRepoInstance;
 }

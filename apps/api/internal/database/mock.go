@@ -28,6 +28,11 @@ type MockRepository struct {
 	cmsNav         map[string]*domain.CmsNavigationItem // accountID:itemID -> item
 	cmsThemes      map[string]*domain.CmsThemeSettings // accountID -> theme
 	cmsRevisions   map[string][]*domain.CmsRevision    // accountID -> []revision
+	objects        map[string]*domain.EncryptedObjectRevision // vaultID:objectID -> latest
+	revisions      map[string]*domain.EncryptedObjectRevision // vaultID:objectID:rev -> revision
+	syncEvents     map[string][]domain.SyncEvent       // vaultID -> []events
+	syncOps        map[string]*domain.SyncOperationResult // vaultID:operationID -> result
+	vaultSeq       map[string]int64                    // vaultID -> monotonic sequence
 	seq            int
 }
 
@@ -46,6 +51,11 @@ func NewMockRepository() *MockRepository {
 		cmsNav:         make(map[string]*domain.CmsNavigationItem),
 		cmsThemes:      make(map[string]*domain.CmsThemeSettings),
 		cmsRevisions:   make(map[string][]*domain.CmsRevision),
+		objects:        make(map[string]*domain.EncryptedObjectRevision),
+		revisions:      make(map[string]*domain.EncryptedObjectRevision),
+		syncEvents:     make(map[string][]domain.SyncEvent),
+		syncOps:        make(map[string]*domain.SyncOperationResult),
+		vaultSeq:       make(map[string]int64),
 	}
 }
 
@@ -983,5 +993,215 @@ func (m *MockRepository) RestoreCmsRevision(ctx context.Context, accountID strin
 		Theme:          theme,
 		RevisionNumber: newRevNum,
 	}, nil
+}
+
+func (m *MockRepository) SubmitSyncOperation(
+	ctx context.Context,
+	accountID string,
+	deviceID string,
+	vaultID string,
+	op *domain.SyncOperationInput,
+) (*domain.SyncOperationResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 1. Verify vault ownership
+	v, ok := m.vaults[accountID+":"+vaultID]
+	if !ok || v == nil {
+		return nil, ErrNotFound
+	}
+
+	// 2. Check idempotency: if operationID already recorded for this vault
+	opKey := vaultID + ":" + op.OperationID
+	if prev, exists := m.syncOps[opKey]; exists {
+		// Idempotent replay: return previous result
+		return prev, nil
+	}
+
+	// 3. Check object's current revision
+	objKey := vaultID + ":" + op.ObjectID
+	currentRev := int64(0)
+	if existing, exists := m.objects[objKey]; exists && existing != nil {
+		currentRev = existing.Revision
+	}
+
+	if op.BaseRevision != currentRev {
+		return nil, &domain.RevisionConflictError{
+			Conflict: domain.RevisionConflict{
+				ObjectID:              op.ObjectID,
+				AttemptedBaseRevision: op.BaseRevision,
+				CurrentRevision:       currentRev,
+			},
+		}
+	}
+
+	newRevision := op.BaseRevision + 1
+
+	// Increment monotonic sequence ID for this vault
+	m.vaultSeq[vaultID]++
+	seqID := m.vaultSeq[vaultID]
+
+	now := time.Now().UTC()
+
+	var rev *domain.EncryptedObjectRevision
+	if op.Kind == "delete" {
+		rev = &domain.EncryptedObjectRevision{
+			VaultID:   vaultID,
+			ObjectID:  op.ObjectID,
+			Revision:  newRevision,
+			IsDeleted: true,
+			CreatedAt: now,
+		}
+	} else {
+		ctHash := op.CiphertextHash
+		if len(ctHash) == 0 && len(op.Ciphertext) > 0 {
+			h := sha256.Sum256(op.Ciphertext)
+			ctHash = h[:]
+		}
+		rev = &domain.EncryptedObjectRevision{
+			VaultID:          vaultID,
+			ObjectID:         op.ObjectID,
+			Revision:         newRevision,
+			ProtocolVersion:  op.ProtocolVersion,
+			Algorithm:        op.Algorithm,
+			KeyWrapAlgorithm: op.KeyWrapAlgorithm,
+			PayloadVersion:   op.PayloadVersion,
+			Purpose:          op.Purpose,
+			Nonce:            op.Nonce,
+			WrappedDEK:       op.WrappedDEK,
+			Ciphertext:       op.Ciphertext,
+			CiphertextHash:   ctHash,
+			IsDeleted:        false,
+			CreatedAt:        now,
+		}
+	}
+
+	m.objects[objKey] = rev
+	m.revisions[fmt.Sprintf("%s:%s:%d", vaultID, op.ObjectID, newRevision)] = rev
+
+	event := domain.SyncEvent{
+		SequenceID:    seqID,
+		AccountID:     accountID,
+		VaultID:       vaultID,
+		OperationID:   op.OperationID,
+		DeviceID:      deviceID,
+		ObjectID:      op.ObjectID,
+		OperationKind: op.Kind,
+		BaseRevision:  op.BaseRevision,
+		NewRevision:   newRevision,
+		CreatedAt:     now,
+	}
+	m.syncEvents[vaultID] = append(m.syncEvents[vaultID], event)
+
+	result := &domain.SyncOperationResult{
+		OperationID:     op.OperationID,
+		SequenceID:      fmt.Sprintf("%d", seqID),
+		CurrentRevision: newRevision,
+		Accepted:        true,
+	}
+	m.syncOps[opKey] = result
+
+	return result, nil
+}
+
+func (m *MockRepository) ListSyncEvents(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	afterSequence int64,
+	limit int,
+) ([]domain.SyncEvent, string, bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	v, ok := m.vaults[accountID+":"+vaultID]
+	if !ok || v == nil {
+		return nil, "", false, ErrNotFound
+	}
+
+	events := m.syncEvents[vaultID]
+	var filtered []domain.SyncEvent
+	for _, ev := range events {
+		if ev.SequenceID > afterSequence {
+			filtered = append(filtered, ev)
+		}
+	}
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	hasMore := len(filtered) > limit
+	if hasMore {
+		filtered = filtered[:limit]
+	}
+
+	nextCursor := fmt.Sprintf("%d", afterSequence)
+	if len(filtered) > 0 {
+		nextCursor = fmt.Sprintf("%d", filtered[len(filtered)-1].SequenceID)
+	}
+
+	return filtered, nextCursor, hasMore, nil
+}
+
+func (m *MockRepository) GetEncryptedObjectRevision(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	objectID string,
+	revision *int64,
+) (*domain.EncryptedObjectRevision, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	v, ok := m.vaults[accountID+":"+vaultID]
+	if !ok || v == nil {
+		return nil, ErrNotFound
+	}
+
+	if revision != nil {
+		revKey := fmt.Sprintf("%s:%s:%d", vaultID, objectID, *revision)
+		rev, exists := m.revisions[revKey]
+		if !exists || rev == nil {
+			return nil, ErrNotFound
+		}
+		return rev, nil
+	}
+
+	objKey := vaultID + ":" + objectID
+	obj, exists := m.objects[objKey]
+	if !exists || obj == nil {
+		return nil, ErrNotFound
+	}
+	return obj, nil
+}
+
+func (m *MockRepository) PutEncryptedObject(
+	ctx context.Context,
+	accountID string,
+	deviceID string,
+	vaultID string,
+	objectID string,
+	ifMatchRevision int64,
+	envelope *domain.EncryptedObjectRevision,
+) (*domain.SyncOperationResult, error) {
+	opID := m.nextID("op")
+	op := &domain.SyncOperationInput{
+		OperationID:      opID,
+		ObjectID:         objectID,
+		Kind:             "upsert",
+		BaseRevision:     ifMatchRevision,
+		ClientCreatedAt:  time.Now().UTC(),
+		ProtocolVersion:  envelope.ProtocolVersion,
+		Algorithm:        envelope.Algorithm,
+		KeyWrapAlgorithm: envelope.KeyWrapAlgorithm,
+		PayloadVersion:   envelope.PayloadVersion,
+		Purpose:          envelope.Purpose,
+		Nonce:            envelope.Nonce,
+		WrappedDEK:       envelope.WrappedDEK,
+		Ciphertext:       envelope.Ciphertext,
+		CiphertextHash:   envelope.CiphertextHash,
+	}
+	return m.SubmitSyncOperation(ctx, accountID, deviceID, vaultID, op)
 }
 

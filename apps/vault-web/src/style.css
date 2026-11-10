@@ -1563,3 +1563,130 @@ code {
   margin: 0 auto 1.25rem;
   font-size: 0.92rem;
 }
+
+/* Sync Button in Navbar */
+.btn-navbar-sync {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--border-radius, 8px);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-navbar-sync.idle {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+
+.btn-navbar-sync.idle:hover {
+  background: #e2e8f0;
+}
+
+.btn-navbar-sync.syncing {
+  background: #eff6ff;
+  color: #2563eb;
+  border-color: #bfdbfe;
+  animation: pulse 1.5s infinite;
+}
+
+.btn-navbar-sync.conflict {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+  font-weight: 700;
+}
+
+.btn-navbar-sync.conflict:hover {
+  background: #fee2e2;
+}
+
+.btn-navbar-sync.offline {
+  background: #f8fafc;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+}
+
+/* Conflict Resolution Comparison Grid */
+.conflict-comparison-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+  .conflict-comparison-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.conflict-column {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--border-radius, 8px);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.conflict-column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.conflict-column-header h4 {
+  margin: 0;
+  font-size: 1rem;
+  color: #0f172a;
+}
+
+.conflict-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 1rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.conflict-card.empty {
+  justify-content: center;
+  align-items: center;
+  min-height: 140px;
+}
+
+.conflict-field {
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.conflict-field strong {
+  color: #475569;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.conflict-pre {
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}

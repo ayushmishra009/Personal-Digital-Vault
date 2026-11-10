@@ -40,6 +40,9 @@ export interface LocalDatabase {
   listVaultMetadata(): Promise<VaultMetadata[]>;
   deleteVaultMetadata(vaultId: string): Promise<void>;
 
+  putSyncState(state: LocalSyncState): Promise<void>;
+  getSyncState(vaultId: string): Promise<LocalSyncState | null>;
+
   clear(): Promise<void>;
 }
 
@@ -216,6 +219,26 @@ class IndexedDBDatabase implements LocalDatabase {
     });
   }
 
+  async putSyncState(state: LocalSyncState): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("sync_state", "readwrite");
+      tx.objectStore("sync_state").put(state);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async getSyncState(vaultId: string): Promise<LocalSyncState | null> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("sync_state", "readonly");
+      const req = tx.objectStore("sync_state").get(vaultId);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
   async clear(): Promise<void> {
     const db = await this.getDB();
     const storeNames = Array.from(db.objectStoreNames);
@@ -235,6 +258,7 @@ export class MemoryDatabase implements LocalDatabase {
   private records = new Map<string, StoredEncryptedRecord>();
   private pendingOps = new Map<string, SyncOperation>();
   private vaults = new Map<string, VaultMetadata>();
+  private syncStates = new Map<string, LocalSyncState>();
 
   private recordKey(vaultId: string, objectId: string): string {
     return `${vaultId}:${objectId}`;
@@ -298,10 +322,19 @@ export class MemoryDatabase implements LocalDatabase {
     this.vaults.delete(vaultId);
   }
 
+  async putSyncState(state: LocalSyncState): Promise<void> {
+    this.syncStates.set(state.vaultId, state);
+  }
+
+  async getSyncState(vaultId: string): Promise<LocalSyncState | null> {
+    return this.syncStates.get(vaultId) ?? null;
+  }
+
   async clear(): Promise<void> {
     this.records.clear();
     this.pendingOps.clear();
     this.vaults.clear();
+    this.syncStates.clear();
   }
 }
 

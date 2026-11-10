@@ -54,6 +54,12 @@ import { CreateVaultModal } from "./components/modals/CreateVaultModal";
 import { UnlockVaultModal } from "./components/modals/UnlockVaultModal";
 import { ChangePasswordModal } from "./components/modals/ChangePasswordModal";
 import { PasswordGeneratorModal } from "./components/modals/PasswordGeneratorModal";
+import { ConflictResolutionModal } from "./components/modals/ConflictResolutionModal";
+import {
+  getSyncEngine,
+  type ActiveConflict,
+  type SyncStatus,
+} from "./storage/sync-engine";
 
 function randomBase64Url(length = 32): string {
   const bytes = new Uint8Array(length);
@@ -99,6 +105,13 @@ export function App() {
   const [unlockVaultId, setUnlockVaultId] = useState<string | null>(null);
   const [changePwVaultId, setChangePwVaultId] = useState<string | null>(null);
   const [showGeneratorModal, setShowGeneratorModal] = useState(false);
+
+  // Sync and conflict state
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const [pendingOpsCount, setPendingOpsCount] = useState(0);
+  const [, setConflicts] = useState<ActiveConflict[]>([]);
+  const [selectedConflict, setSelectedConflict] =
+    useState<ActiveConflict | null>(null);
 
   // App configuration & theme
   const [appConfig, setAppConfig] = useState<AppConfiguration | null>(null);
@@ -172,6 +185,8 @@ export function App() {
     try {
       const records = await recordRepo.listRecords(vaultId, key);
       setDecryptedRecords(records);
+      const pending = await recordRepo.listPendingOperations(vaultId);
+      setPendingOpsCount(pending.length);
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(`Failed to load records: ${err.message}`);
@@ -353,6 +368,85 @@ export function App() {
     await recordRepo.deleteRecord(activeVaultId, record.id, 1);
     await loadRecordsForVault(activeVaultId, key);
     showToast(`Deleted record "${record.title}"`);
+  };
+
+  // Sync actions
+  const handleSync = async () => {
+    if (!activeVaultId || !unlockedKeys[activeVaultId]) {
+      showToast("Unlock vault to synchronize");
+      return;
+    }
+    const key = unlockedKeys[activeVaultId];
+    setSyncStatus("syncing");
+    const engine = getSyncEngine();
+    try {
+      const res = await engine.syncVault(activeVaultId, key);
+      await loadRecordsForVault(activeVaultId, key);
+      if (res.conflicts.length > 0) {
+        setConflicts(res.conflicts);
+        setSelectedConflict(res.conflicts[0]);
+        setSyncStatus("conflict");
+        showToast(`⚠️ Sync encountered ${res.conflicts.length} conflict(s)`);
+      } else {
+        setSyncStatus("idle");
+        showToast(
+          `Synced: pulled ${res.pulledEvents}, pushed ${res.pushedOperations}`,
+        );
+      }
+    } catch (err: unknown) {
+      if (engine.getConflicts().length > 0) {
+        const cList = engine.getConflicts();
+        setConflicts(cList);
+        setSelectedConflict(cList[0]);
+        setSyncStatus("conflict");
+      } else {
+        setSyncStatus("offline");
+        showToast(
+          `Sync failed: ${err instanceof Error ? err.message : "Network error"}`,
+        );
+      }
+    }
+  };
+
+  const handleResolveKeepLocal = async () => {
+    if (!activeVaultId || !unlockedKeys[activeVaultId] || !selectedConflict)
+      return;
+    const key = unlockedKeys[activeVaultId];
+    const engine = getSyncEngine();
+    await engine.resolveKeepLocal(activeVaultId, key, selectedConflict);
+    setSelectedConflict(null);
+    setConflicts(engine.getConflicts());
+    showToast("Kept local version (re-enqueued with updated base revision)");
+    await handleSync();
+  };
+
+  const handleResolveKeepRemote = async () => {
+    if (!activeVaultId || !selectedConflict) return;
+    const engine = getSyncEngine();
+    await engine.resolveKeepRemote(activeVaultId, selectedConflict);
+    setSelectedConflict(null);
+    setConflicts(engine.getConflicts());
+    showToast("Accepted server version (local edit discarded)");
+    if (unlockedKeys[activeVaultId]) {
+      await loadRecordsForVault(activeVaultId, unlockedKeys[activeVaultId]);
+    }
+  };
+
+  const handleResolveMerge = async (mergedRecord: DecryptedRecord) => {
+    if (!activeVaultId || !unlockedKeys[activeVaultId] || !selectedConflict)
+      return;
+    const key = unlockedKeys[activeVaultId];
+    const engine = getSyncEngine();
+    await engine.resolveMerge(
+      activeVaultId,
+      key,
+      selectedConflict,
+      mergedRecord,
+    );
+    setSelectedConflict(null);
+    setConflicts(engine.getConflicts());
+    showToast("Merged record saved and queued for sync");
+    await handleSync();
   };
 
   // Device actions
@@ -704,6 +798,9 @@ export function App() {
         onSearchChange={setSearchQuery}
         onOpenGenerator={() => setShowGeneratorModal(true)}
         onLogout={handleLogout}
+        syncStatus={syncStatus}
+        pendingOpsCount={pendingOpsCount}
+        onSyncClick={handleSync}
       />
 
       <div className="app-container">
@@ -932,6 +1029,16 @@ export function App() {
         <PasswordGeneratorModal
           onCopy={handleCopy}
           onClose={() => setShowGeneratorModal(false)}
+        />
+      )}
+
+      {selectedConflict && (
+        <ConflictResolutionModal
+          conflict={selectedConflict}
+          onKeepLocal={handleResolveKeepLocal}
+          onKeepRemote={handleResolveKeepRemote}
+          onMerge={handleResolveMerge}
+          onClose={() => setSelectedConflict(null)}
         />
       )}
     </div>

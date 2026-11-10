@@ -1,6 +1,10 @@
-import type { AppConfiguration } from "@pdv/data-models";
+import type {
+  AppConfiguration,
+  SyncOperation,
+  EncryptedObjectEnvelope,
+} from "@pdv/data-models";
 
-export type { AppConfiguration };
+export type { AppConfiguration, SyncOperation, EncryptedObjectEnvelope };
 
 export interface Account {
   id: string;
@@ -36,20 +40,60 @@ export interface DeviceEnrollment {
 }
 
 export interface Problem {
-  type: string;
-  title: string;
-  status: number;
+  type?: string;
+  title?: string;
+  status?: number;
   detail?: string;
+  error?: {
+    code?: string;
+    message?: string;
+    requestId?: string;
+    details?: {
+      currentRevision?: number;
+      attemptedBaseRevision?: number;
+    };
+  };
+}
+
+export class ConflictError extends Error {
+  status = 409;
+  objectId?: string;
+  currentRevision?: number;
+  attemptedBaseRevision?: number;
+
+  constructor(
+    message: string,
+    details?: {
+      currentRevision?: number;
+      attemptedBaseRevision?: number;
+      objectId?: string;
+    },
+  ) {
+    super(message);
+    this.name = "ConflictError";
+    this.currentRevision = details?.currentRevision;
+    this.attemptedBaseRevision = details?.attemptedBaseRevision;
+    this.objectId = details?.objectId;
+  }
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let errMessage = `HTTP ${res.status}`;
+    let probDetails:
+      { currentRevision?: number; attemptedBaseRevision?: number } | undefined;
     try {
       const prob: Problem = await res.json();
-      errMessage = prob.detail || prob.title || errMessage;
+      errMessage =
+        prob.detail || prob.title || prob.error?.message || errMessage;
+      if (prob.error?.details) {
+        probDetails = prob.error.details;
+      }
     } catch {
       // fallback
+    }
+    if (res.status === 409) {
+      throw new ConflictError(errMessage, probDetails);
     }
     throw new Error(errMessage);
   }
@@ -261,4 +305,103 @@ export async function getAppConfiguration(): Promise<AppConfiguration> {
     credentials: "include",
   });
   return handleResponse<AppConfiguration>(res);
+}
+
+export interface SyncEvent {
+  sequenceId: string;
+  operationId: string;
+  deviceId: string;
+  objectId: string;
+  operationKind: "upsert" | "delete";
+  baseRevision: number;
+  newRevision: number;
+  createdAt: string;
+}
+
+export interface SyncPage {
+  items: SyncEvent[];
+  nextCursor: string;
+  hasMore: boolean;
+}
+
+export interface SyncOperationResult {
+  operationId: string;
+  sequenceId: string;
+  currentRevision: number;
+  accepted: boolean;
+}
+
+export async function listSyncEvents(
+  vaultId: string,
+  after: string = "0",
+  limit: number = 100,
+): Promise<SyncPage> {
+  const params = new URLSearchParams({ after, limit: String(limit) });
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/sync?${params}`,
+    { credentials: "include" },
+  );
+  return handleResponse<SyncPage>(res);
+}
+
+export async function submitSyncOperation(
+  vaultId: string,
+  op: SyncOperation,
+  idempotencyKey?: string,
+): Promise<SyncOperationResult> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (idempotencyKey) {
+    headers["Idempotency-Key"] = idempotencyKey;
+  }
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/sync/operations`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(op),
+      credentials: "include",
+    },
+  );
+  return handleResponse<SyncOperationResult>(res);
+}
+
+export async function getEncryptedObject(
+  vaultId: string,
+  objectId: string,
+  revision?: number,
+): Promise<EncryptedObjectEnvelope> {
+  const params = revision !== undefined ? `?revision=${revision}` : "";
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/objects/${encodeURIComponent(objectId)}${params}`,
+    { credentials: "include" },
+  );
+  return handleResponse<EncryptedObjectEnvelope>(res);
+}
+
+export async function putEncryptedObject(
+  vaultId: string,
+  objectId: string,
+  ifMatchRevision: number,
+  envelope: EncryptedObjectEnvelope,
+  idempotencyKey?: string,
+): Promise<SyncOperationResult> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "If-Match-Revision": String(ifMatchRevision),
+  };
+  if (idempotencyKey) {
+    headers["Idempotency-Key"] = idempotencyKey;
+  }
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/objects/${encodeURIComponent(objectId)}`,
+    {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(envelope),
+      credentials: "include",
+    },
+  );
+  return handleResponse<SyncOperationResult>(res);
 }

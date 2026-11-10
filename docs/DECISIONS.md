@@ -116,3 +116,33 @@ Reference: [RustFS 1.0.4 release](https://github.com/rustfs/rustfs/releases) and
    - Safe CSS design tokens for customizable theme accents.<br>
 **Reason:** Fulfills Section 5, Section 6, Section 8, Section 10, and Section 14 requirements of the Master Build Spec. Delivers an accessible, zero-knowledge, and production-grade primary web interface.
 
+## ADR-0015: Phase 8 Backend Sync Engine and Conflict Handling
+
+**Status:** Accepted for Phase 8<br>
+**Decision:** Implement the append-only sync protocol, monotonic per-vault sequencing, optimistic concurrency with 409 Conflict detection, and client-side side-by-side conflict resolution:
+1. **Append-Only Sync Event Log & Monotonic Sequence Counter:**
+   - Server assigns a strictly monotonic `sequence_id` (BIGINT) per vault in the `sync_events` table upon every successful sync operation.
+   - Per-object revision tracking enforces `new_revision = base_revision + 1`. An upsert on a non-existent object requires `base_revision = 0` yielding revision `1`.
+   - Tombstones for deletion: `operation_kind = 'delete'` inserts a tombstone revision marking `is_deleted = true`, preserving revision history and emitting a deletion sync event to peers.
+2. **Idempotent Request Handling:**
+   - Deduplication by composite unique key `(vault_id, operation_id)`: duplicate submissions return the original operation's result (`sequence_id`, `new_revision`) without creating duplicate sync events or incrementing revisions.
+3. **Optimistic Concurrency & 409 Conflict Protocol:**
+   - When an incoming operation's `base_revision != current_revision`, the server rejects with HTTP `409 Conflict`.
+   - Problem details response (RFC 7807) includes structured details: `type = "https://personal-digital-vault/errors/revision-conflict"`, `details: { currentRevision, attemptedBaseRevision }`.
+4. **Delta Sync & Object Fetch Endpoints:**
+   - `POST /api/v1/vaults/{vaultId}/sync/operations`: Submits single upsert or delete sync operation with optimistic revision check.
+   - `GET /api/v1/vaults/{vaultId}/sync?after={cursor}&limit={limit}`: Delta feed cursor pagination ordered by `sequence_id ASC`.
+   - `GET /api/v1/vaults/{vaultId}/objects/{objectId}?revision={rev}`: Fetches specific encrypted object revision.
+   - `PUT /api/v1/vaults/{vaultId}/objects/{objectId}`: Direct object revision upsert supporting `If-Match-Revision` header.
+5. **Client-Side Sync Engine (`apps/vault-web`):**
+   - Delta pull: Fetches sync events since last persisted cursor, pulls updated object envelopes, and applies them to local IndexedDB store.
+   - Push queue draining: Iterates pending local operations in FIFO order; handles idempotency and detects 409 conflicts.
+   - Zero-knowledge conflict handling: On `ConflictError`, fetches server ciphertext revision, decrypts both local and server records in volatile memory using active VEK, and presents side-by-side comparison modal (`ConflictResolutionModal`).
+   - Resolution strategies:
+     - **Keep Local**: Rebases local modifications atop the latest server revision (`base_revision = conflict.serverRevision`) and pushes as a new revision.
+     - **Keep Server**: Discards local pending changes and updates local store with server record.
+     - **Merge**: Applies user's merged field selection, saves as new revision, and pushes.
+   - Silent overwrite (last-write-wins) is strictly prevented.<br>
+**Reason:** Fulfills Section 5, Section 11 ("SYNC AND CONFLICT RESOLUTION"), and Section 14 requirements of the Master Build Spec. Guarantees deterministic event ordering across devices, cross-device consistency, data loss prevention, and strict zero-knowledge encryption guarantees.
+
+

@@ -1,7 +1,7 @@
 # Implementation status
 
-**Current phase:** Phase 7 complete; ready for Phase 8 (Backend Sync Engine & Conflict Resolution)<br>
-**Status:** Phases 0, 1, 2, 3, 4, 5, 6, and 7 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 7 delivers the complete primary web vault application (`apps/vault-web`) with an application shell, responsive navigation, categorized views (Passwords, Notes, Identities, Payments, Documents), vault lifecycle management with Argon2id p=4 derivation and 256-bit offline recovery secrets, device pairing and authorization, recovery secret verification and encrypted JSON archive export/import, settings with theme presets and auto-lock controls, and full test suites with 20 Vitest tests passing.
+**Current phase:** Phase 8 complete; ready for Phase 9 (Encrypted Attachments & Object Storage)<br>
+**Status:** Phases 0, 1, 2, 3, 4, 5, 6, 7, and 8 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 8 delivers the complete backend sync engine, monotonic revision sequence tracking, idempotent sync operations, 409 Conflict detection with structured problem details, delta sync event stream with cursor pagination, client-side sync engine draining local pending queues, zero-knowledge side-by-side conflict resolution modal, and full automated test suites with 27 Vitest tests in `apps/vault-web` and Go sync router tests passing.
 
 ## Repository state at start
 
@@ -160,18 +160,47 @@ The repository contained only the master build specification and Git metadata. N
   - `apps/vault-web/src/components/views.test.tsx`: 10 comprehensive Vitest tests verifying rendering of all views, masked data, and empty states.
   - Total 20 Vitest tests passing in `apps/vault-web`.
 
+## Phase 8 scope delivered
+
+- Backend sync engine architecture (`apps/api`):
+  - Domain models in `apps/api/internal/domain/models.go` (`SyncOperationInput`, `SyncOperationResult`, `RevisionConflict`, `RevisionConflictError`).
+  - Repository interface extended in `repository.go` with `SubmitSyncOperation`, `ListSyncEvents`, `GetEncryptedObjectRevision`, and `PutEncryptedObject`.
+  - In-memory mock repository (`mock.go`) and production PostgreSQL repository (`postgres.go`) with row-level locking (`FOR UPDATE`), atomic transaction boundaries, and monotonic per-vault sequence counters.
+  - Idempotent request handling deduplicating submissions by `(vault_id, operation_id)`.
+  - Enforced monotonic revision checks (`new_revision = base_revision + 1`).
+  - Tombstones for record deletion (`operation_kind: 'delete'`) emitting deletion sync events to peers.
+  - HTTP 409 Conflict problem details formatted per RFC 7807 with structured `currentRevision` and `attemptedBaseRevision`.
+  - HTTP handlers in `apps/api/internal/handlers/sync.go` and endpoints mounted in `router.go` under `requireActiveSession`:
+    - `POST /api/v1/vaults/{vaultId}/sync/operations`
+    - `GET /api/v1/vaults/{vaultId}/sync`
+    - `GET /api/v1/vaults/{vaultId}/objects/{objectId}`
+    - `PUT /api/v1/vaults/{vaultId}/objects/{objectId}`
+  - Cross-tenant sync isolation: requests to vaults belonging to another account return 404 Not Found without leaking object existence.
+- Client-side sync engine (`apps/vault-web`):
+  - API client functions in `apps/vault-web/src/api.ts` (`listSyncEvents`, `submitSyncOperation`, `getEncryptedObject`, `putEncryptedObject`) and `ConflictError` class.
+  - Local database sync state persistence in `apps/vault-web/src/storage/db.ts` (`putSyncState`, `getSyncState`).
+  - `RecordRepository` methods: `getStoredRecord`, `deletePendingOperation`, `getSyncState`, `putSyncState`, `openRecord`, and singleton `getRecordRepository()`.
+  - `SyncEngine` class (`apps/vault-web/src/storage/sync-engine.ts`) with delta pull cursor synchronization, FIFO pending push queue draining, conflict detection, and resolution strategies (`resolveKeepLocal`, `resolveKeepRemote`, `resolveMerge`).
+  - Side-by-side visual conflict comparison and merge modal (`ConflictResolutionModal.tsx`).
+  - Navbar sync button and status badges (`Synced`, `Syncing...`, `Offline`, `Conflict`, pending count).
+- Automated tests:
+  - Go API tests in `internal/router/router_test.go` (`TestSyncEngineAndConflictResolution`, `TestSyncTenantIsolation`).
+  - Vitest unit tests in `apps/vault-web/src/storage/sync-engine.test.ts` (5 tests covering full sync cycle, idempotency deduplication, conflict detection, keep-local rebase, and tombstone delete propagation).
+  - Vitest UI tests in `apps/vault-web/src/components/modals/ConflictResolutionModal.test.tsx` (2 tests verifying side-by-side field diffing, resolution triggers, and tombstone handling).
+  - Total 27 Vitest tests passing in `apps/vault-web`.
+
 ## Not implemented
 
-Backend sync engine and conflict resolution (Phase 8), streaming attachments (Phase 9), remote backup/restore archives (Phase 10), and Chrome extension (Phase 11) are not implemented.
+Streaming attachments (Phase 9), remote backup/restore archives (Phase 10), and Chrome extension (Phase 11) are not implemented.
 
 ## Verification
 
 - `npx turbo run build test` passed across all workspace packages and apps (9/9 tasks successful).
 - `npx prettier --write apps/vault-web/` and `npx eslint .` passed with 0 errors.
 - Go backend unit tests (`internal/auth` and `internal/router`) passed 100%.
-- Client vault, storage, and view vitest tests passed 100% (20/20 tests passing in `vault-web`).
+- Client vault, storage, view, and sync engine Vitest tests passed 100% (27/27 tests passing in `vault-web`).
 - TypeScript packages and apps typecheck cleanly with 0 errors.
 
 ## Next phase
 
-Phase 8 — Backend Sync Engine & Conflict Resolution: Delta sync endpoints (`POST /api/v1/vaults/{vaultId}/sync`), client sync queue processor draining `pending_operations`, server monotonic revision sequencing, server clock vectors, and `409 Conflict` resolution rules.
+Phase 9 — Encrypted Attachments & Object Storage: Streaming encryption with AEAD chunking, RustFS / S3 presigned upload/download authorization, attachment metadata storage, and zero-knowledge client decryption.

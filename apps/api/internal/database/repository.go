@@ -82,4 +82,10 @@ type Repository interface {
 	UpdateCmsTheme(ctx context.Context, accountID string, theme *domain.CmsThemeSettings) (*domain.CmsThemeSettings, error)
 	ListCmsRevisions(ctx context.Context, accountID string) ([]domain.CmsRevision, error)
 	RestoreCmsRevision(ctx context.Context, accountID string, revisionNumber int, actorDeviceID string) (*domain.AppConfiguration, error)
+
+	// Sync Engine & Object Operations
+	SubmitSyncOperation(ctx context.Context, accountID string, deviceID string, vaultID string, op *domain.SyncOperationInput) (*domain.SyncOperationResult, error)
+	ListSyncEvents(ctx context.Context, accountID string, vaultID string, afterSequence int64, limit int) ([]domain.SyncEvent, string, bool, error)
+	GetEncryptedObjectRevision(ctx context.Context, accountID string, vaultID string, objectID string, revision *int64) (*domain.EncryptedObjectRevision, error)
+	PutEncryptedObject(ctx context.Context, accountID string, deviceID string, vaultID string, objectID string, ifMatchRevision int64, envelope *domain.EncryptedObjectRevision) (*domain.SyncOperationResult, error)
 }

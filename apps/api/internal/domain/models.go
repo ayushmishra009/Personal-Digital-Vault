@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // These are server-side metadata and ciphertext models only. Decrypted vault
 // records and client key material must never be added to this package.
@@ -132,4 +135,45 @@ type AuditEvent struct {
 	ResourceID string
 	RequestID string
 	CreatedAt time.Time
+}
+
+type SyncOperationInput struct {
+	OperationID     string
+	ObjectID        string
+	Kind            string // "upsert" or "delete"
+	BaseRevision    int64
+	ClientCreatedAt time.Time
+
+	// Fields for upsert
+	ProtocolVersion  int
+	Algorithm        string
+	KeyWrapAlgorithm string
+	PayloadVersion   int
+	Purpose          string
+	Nonce            []byte
+	WrappedDEK       []byte
+	Ciphertext       []byte
+	CiphertextHash   []byte
+}
+
+type SyncOperationResult struct {
+	OperationID     string `json:"operationId"`
+	SequenceID      string `json:"sequenceId"`
+	CurrentRevision int64  `json:"currentRevision"`
+	Accepted        bool   `json:"accepted"`
+}
+
+type RevisionConflict struct {
+	ObjectID              string `json:"objectId"`
+	AttemptedBaseRevision int64  `json:"attemptedBaseRevision"`
+	CurrentRevision       int64  `json:"currentRevision"`
+}
+
+type RevisionConflictError struct {
+	Conflict RevisionConflict
+}
+
+func (e *RevisionConflictError) Error() string {
+	return fmt.Sprintf("revision conflict on object %s: attempted base %d, current is %d",
+		e.Conflict.ObjectID, e.Conflict.AttemptedBaseRevision, e.Conflict.CurrentRevision)
 }

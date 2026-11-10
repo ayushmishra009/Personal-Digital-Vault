@@ -14,6 +14,9 @@ interface AppNavbarProps {
   onSearchChange: (q: string) => void;
   onOpenGenerator: () => void;
   onLogout: () => void;
+  syncStatus?: "idle" | "syncing" | "offline" | "conflict";
+  pendingOpsCount?: number;
+  onSyncClick?: () => void;
 }
 
 export const AppNavbar: React.FC<AppNavbarProps> = ({
@@ -29,6 +32,9 @@ export const AppNavbar: React.FC<AppNavbarProps> = ({
   onSearchChange,
   onOpenGenerator,
   onLogout,
+  syncStatus = "idle",
+  pendingOpsCount = 0,
+  onSyncClick,
 }) => {
   const activeVault = vaults.find((v) => v.id === activeVaultId);
   const isUnlocked = activeVaultId ? !!unlockedKeys[activeVaultId] : false;
@@ -117,6 +123,24 @@ export const AppNavbar: React.FC<AppNavbarProps> = ({
       </div>
 
       <div className="navbar-right">
+        {onSyncClick && (
+          <button
+            type="button"
+            className={`btn-navbar-sync ${syncStatus}`}
+            onClick={onSyncClick}
+            disabled={syncStatus === "syncing"}
+            title="Synchronize vault with backend"
+          >
+            {syncStatus === "syncing" && "🔄 Syncing..."}
+            {syncStatus === "conflict" && "⚠️ Conflict"}
+            {syncStatus === "offline" && "📡 Offline"}
+            {syncStatus === "idle" &&
+              (pendingOpsCount > 0
+                ? `☁️ (${pendingOpsCount} pending)`
+                : "☁️ Synced")}
+          </button>
+        )}
+
         <button
           type="button"
           className="btn-navbar-secondary"

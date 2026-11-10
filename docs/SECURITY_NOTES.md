@@ -20,6 +20,11 @@
   - Masked UI fields: Passwords, card numbers, CVVs, and government document numbers are masked by default with toggleable visibility to protect against shoulder surfing.
   - Safe Markdown & Content Rendering: Note preview renders markdown safely with strict HTML escaping, preventing XSS and script execution. External links are opened with `rel="noopener noreferrer"`.
   - Encrypted JSON Export: Backup archives are generated with AES-256-GCM authenticated encryption using keys derived from the user's vault key, ensuring backups are never exported in plaintext.
+- Phase 8 Sync Engine & Conflict Handling Security Architecture:
+  - Zero-knowledge wire protocol: The sync endpoint receives and stores only ciphertext `EncryptedObjectEnvelope` payloads, opaque vault and object UUIDs, monotonic sequence numbers, and base revisions. Plaintext titles, record fields, passwords, DEKs, and VEKs are never sent to the sync engine.
+  - No last-write-wins: Silent data overwrite is prohibited. When base revision mismatches current server revision, the server emits an HTTP 409 Conflict. The client fetches the remote ciphertext, decrypts both versions locally using the client's volatile VEK, and presents explicit user resolution (rebase, discard, or field merge).
+  - Cross-tenant boundary isolation: Sync endpoints enforce account ownership and active device authorization. Cross-tenant sync access attempts return 404 Not Found without leaking existence or revisions.
+  - Replay protection & Idempotency: All sync operations carry a client-generated UUID `operation_id` deduplicated by `(vault_id, operation_id)`, preventing replay from generating redundant sequence counters or corrupted object revisions.
 - Phase 2 crypto-core operations are a prototype, **PENDING SECURITY REVIEW**; stream encryption is not yet implemented.
 - Decrypted Vault Encryption Keys (VEKs) reside strictly in volatile client memory (`CryptoKey`) during active unlock; locking clears in-memory keys immediately. Keys are never transmitted over the wire or stored in environment variables.
 - The backend stores only opaque vault IDs, timestamps, and wrapped envelopes; it never receives plaintext labels, passwords, recovery secrets, or decrypted data.

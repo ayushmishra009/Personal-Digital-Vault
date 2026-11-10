@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -1440,4 +1441,332 @@ func (r *PostgresRepository) RestoreCmsRevision(ctx context.Context, accountID s
 	`, newUUID(), accountID, nextRev, actorDeviceID, fmt.Sprintf("Restored configuration from revision #%d", revisionNumber), snapshotBytes)
 
 	return r.GetAppConfiguration(ctx, accountID)
+}
+
+func (r *PostgresRepository) SubmitSyncOperation(
+	ctx context.Context,
+	accountID string,
+	deviceID string,
+	vaultID string,
+	op *domain.SyncOperationInput,
+) (*domain.SyncOperationResult, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// 1. Verify vault ownership
+	var vID string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM vaults WHERE account_id = $1 AND id = $2`, accountID, vaultID).Scan(&vID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	// 2. Check idempotency: if operation_id already recorded for this vault
+	var existingSeq int64
+	var existingRev int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT sequence_id, new_revision FROM sync_events WHERE vault_id = $1 AND operation_id = $2
+	`, vaultID, op.OperationID).Scan(&existingSeq, &existingRev)
+	if err == nil {
+		// Idempotent replay: return earlier accepted result
+		return &domain.SyncOperationResult{
+			OperationID:     op.OperationID,
+			SequenceID:      fmt.Sprintf("%d", existingSeq),
+			CurrentRevision: existingRev,
+			Accepted:        true,
+		}, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	// 3. Row-lock vault_objects to check current revision
+	var currentRev int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT current_revision FROM vault_objects WHERE account_id = $1 AND vault_id = $2 AND object_id = $3 FOR UPDATE
+	`, accountID, vaultID, op.ObjectID).Scan(&currentRev)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		// Object doesn't exist yet -> current revision is 0
+		if op.BaseRevision != 0 {
+			return nil, &domain.RevisionConflictError{
+				Conflict: domain.RevisionConflict{
+					ObjectID:              op.ObjectID,
+					AttemptedBaseRevision: op.BaseRevision,
+					CurrentRevision:       0,
+				},
+			}
+		}
+		newRevision := int64(1)
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO vault_objects (account_id, vault_id, object_id, current_revision)
+			VALUES ($1, $2, $3, $4)
+		`, accountID, vaultID, op.ObjectID, newRevision)
+		if err != nil {
+			return nil, err
+		}
+		currentRev = 0
+	} else if err != nil {
+		return nil, err
+	} else {
+		// Object exists -> check base revision matches
+		if op.BaseRevision != currentRev {
+			return nil, &domain.RevisionConflictError{
+				Conflict: domain.RevisionConflict{
+					ObjectID:              op.ObjectID,
+					AttemptedBaseRevision: op.BaseRevision,
+					CurrentRevision:       currentRev,
+				},
+			}
+		}
+		newRevision := op.BaseRevision + 1
+		_, err = tx.ExecContext(ctx, `
+			UPDATE vault_objects SET current_revision = $1, updated_at = now()
+			WHERE account_id = $2 AND vault_id = $3 AND object_id = $4
+		`, newRevision, accountID, vaultID, op.ObjectID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	newRevision := op.BaseRevision + 1
+
+	// 4. Insert into vault_object_revisions
+	if op.Kind == "delete" {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO vault_object_revisions (account_id, vault_id, object_id, revision, is_deleted)
+			VALUES ($1, $2, $3, $4, true)
+		`, accountID, vaultID, op.ObjectID, newRevision)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		ctHash := op.CiphertextHash
+		if len(ctHash) == 0 && len(op.Ciphertext) > 0 {
+			h := sha256.Sum256(op.Ciphertext)
+			ctHash = h[:]
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO vault_object_revisions (
+				account_id, vault_id, object_id, revision, is_deleted,
+				protocol_version, algorithm, key_wrap_algorithm, payload_version, purpose,
+				nonce, wrapped_dek, ciphertext, ciphertext_hash
+			) VALUES ($1, $2, $3, $4, false, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		`, accountID, vaultID, op.ObjectID, newRevision,
+			op.ProtocolVersion, op.Algorithm, op.KeyWrapAlgorithm, op.PayloadVersion, op.Purpose,
+			op.Nonce, op.WrappedDEK, op.Ciphertext, ctHash)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// 5. Insert into sync_events
+	var seqID int64
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO sync_events (
+			account_id, vault_id, operation_id, device_id, object_id,
+			operation_kind, base_revision, new_revision
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING sequence_id
+	`, accountID, vaultID, op.OperationID, deviceID, op.ObjectID, op.Kind, op.BaseRevision, newRevision).Scan(&seqID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &domain.SyncOperationResult{
+		OperationID:     op.OperationID,
+		SequenceID:      fmt.Sprintf("%d", seqID),
+		CurrentRevision: newRevision,
+		Accepted:        true,
+	}, nil
+}
+
+func (r *PostgresRepository) ListSyncEvents(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	afterSequence int64,
+	limit int,
+) ([]domain.SyncEvent, string, bool, error) {
+	var vID string
+	err := r.db.QueryRowContext(ctx, `SELECT id FROM vaults WHERE account_id = $1 AND id = $2`, accountID, vaultID).Scan(&vID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, "", false, ErrNotFound
+		}
+		return nil, "", false, err
+	}
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT sequence_id, operation_id, device_id, object_id, operation_kind, base_revision, new_revision, created_at
+		FROM sync_events
+		WHERE account_id = $1 AND vault_id = $2 AND sequence_id > $3
+		ORDER BY sequence_id ASC
+		LIMIT $4
+	`, accountID, vaultID, afterSequence, limit+1)
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer rows.Close()
+
+	var events []domain.SyncEvent
+	for rows.Next() {
+		var ev domain.SyncEvent
+		ev.AccountID = accountID
+		ev.VaultID = vaultID
+		if err := rows.Scan(
+			&ev.SequenceID,
+			&ev.OperationID,
+			&ev.DeviceID,
+			&ev.ObjectID,
+			&ev.OperationKind,
+			&ev.BaseRevision,
+			&ev.NewRevision,
+			&ev.CreatedAt,
+		); err != nil {
+			return nil, "", false, err
+		}
+		events = append(events, ev)
+	}
+
+	hasMore := len(events) > limit
+	if hasMore {
+		events = events[:limit]
+	}
+
+	nextCursor := fmt.Sprintf("%d", afterSequence)
+	if len(events) > 0 {
+		nextCursor = fmt.Sprintf("%d", events[len(events)-1].SequenceID)
+	}
+
+	return events, nextCursor, hasMore, nil
+}
+
+func (r *PostgresRepository) GetEncryptedObjectRevision(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	objectID string,
+	revision *int64,
+) (*domain.EncryptedObjectRevision, error) {
+	var vID string
+	err := r.db.QueryRowContext(ctx, `SELECT id FROM vaults WHERE account_id = $1 AND id = $2`, accountID, vaultID).Scan(&vID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	var rev domain.EncryptedObjectRevision
+	var query string
+	var args []any
+
+	if revision != nil {
+		query = `
+			SELECT vault_id, object_id, revision, protocol_version, algorithm, key_wrap_algorithm,
+			       payload_version, purpose, nonce, wrapped_dek, ciphertext, ciphertext_hash, is_deleted, created_at
+			FROM vault_object_revisions
+			WHERE account_id = $1 AND vault_id = $2 AND object_id = $3 AND revision = $4
+		`
+		args = []any{accountID, vaultID, objectID, *revision}
+	} else {
+		query = `
+			SELECT r.vault_id, r.object_id, r.revision, r.protocol_version, r.algorithm, r.key_wrap_algorithm,
+			       r.payload_version, r.purpose, r.nonce, r.wrapped_dek, r.ciphertext, r.ciphertext_hash, r.is_deleted, r.created_at
+			FROM vault_object_revisions r
+			JOIN vault_objects o ON r.account_id = o.account_id AND r.vault_id = o.vault_id AND r.object_id = o.object_id AND r.revision = o.current_revision
+			WHERE o.account_id = $1 AND o.vault_id = $2 AND o.object_id = $3
+		`
+		args = []any{accountID, vaultID, objectID}
+	}
+
+	var protoVer, payloadVer sql.NullInt64
+	var alg, kwAlg, purpose sql.NullString
+	var nonce, wrappedDEK, ct, ctHash []byte
+
+	err = r.db.QueryRowContext(ctx, query, args...).Scan(
+		&rev.VaultID,
+		&rev.ObjectID,
+		&rev.Revision,
+		&protoVer,
+		&alg,
+		&kwAlg,
+		&payloadVer,
+		&purpose,
+		&nonce,
+		&wrappedDEK,
+		&ct,
+		&ctHash,
+		&rev.IsDeleted,
+		&rev.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if protoVer.Valid {
+		rev.ProtocolVersion = int(protoVer.Int64)
+	}
+	if alg.Valid {
+		rev.Algorithm = alg.String
+	}
+	if kwAlg.Valid {
+		rev.KeyWrapAlgorithm = kwAlg.String
+	}
+	if payloadVer.Valid {
+		rev.PayloadVersion = int(payloadVer.Int64)
+	}
+	if purpose.Valid {
+		rev.Purpose = purpose.String
+	}
+	rev.Nonce = nonce
+	rev.WrappedDEK = wrappedDEK
+	rev.Ciphertext = ct
+	rev.CiphertextHash = ctHash
+
+	return &rev, nil
+}
+
+func (r *PostgresRepository) PutEncryptedObject(
+	ctx context.Context,
+	accountID string,
+	deviceID string,
+	vaultID string,
+	objectID string,
+	ifMatchRevision int64,
+	envelope *domain.EncryptedObjectRevision,
+) (*domain.SyncOperationResult, error) {
+	op := &domain.SyncOperationInput{
+		OperationID:      newUUID(),
+		ObjectID:         objectID,
+		Kind:             "upsert",
+		BaseRevision:     ifMatchRevision,
+		ClientCreatedAt:  time.Now().UTC(),
+		ProtocolVersion:  envelope.ProtocolVersion,
+		Algorithm:        envelope.Algorithm,
+		KeyWrapAlgorithm: envelope.KeyWrapAlgorithm,
+		PayloadVersion:   envelope.PayloadVersion,
+		Purpose:          envelope.Purpose,
+		Nonce:            envelope.Nonce,
+		WrappedDEK:       envelope.WrappedDEK,
+		Ciphertext:       envelope.Ciphertext,
+		CiphertextHash:   envelope.CiphertextHash,
+	}
+	return r.SubmitSyncOperation(ctx, accountID, deviceID, vaultID, op)
 }

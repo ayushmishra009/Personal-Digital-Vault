@@ -64,6 +64,12 @@ func BuildRouter(cfg Config) http.Handler {
 	mux.Handle("GET /api/v1/vaults/{vaultId}/envelopes/{envelopeType}", requireActiveSession(handlers.GetVaultKeyEnvelopeHandler(cfg.Repo)))
 	mux.Handle("PUT /api/v1/vaults/{vaultId}/envelopes/{envelopeType}", requireActiveSession(handlers.PutVaultKeyEnvelopeHandler(cfg.Repo)))
 
+	// Sync Engine & Object routes (strictly require an active device)
+	mux.Handle("GET /api/v1/vaults/{vaultId}/sync", requireActiveSession(handlers.ListSyncEventsHandler(cfg.Repo)))
+	mux.Handle("POST /api/v1/vaults/{vaultId}/sync/operations", requireActiveSession(handlers.SubmitSyncOperationHandler(cfg.Repo)))
+	mux.Handle("GET /api/v1/vaults/{vaultId}/objects/{objectId}", requireActiveSession(handlers.GetEncryptedObjectHandler(cfg.Repo)))
+	mux.Handle("PUT /api/v1/vaults/{vaultId}/objects/{objectId}", requireActiveSession(handlers.PutEncryptedObjectHandler(cfg.Repo)))
+
 	// CMS & Dynamic App Configuration routes (strictly require an active device)
 	cmsH := &handlers.CmsHandler{Repo: cfg.Repo}
 	mux.Handle("GET /api/v1/app/configuration", requireActiveSession(http.HandlerFunc(cmsH.GetAppConfiguration)))

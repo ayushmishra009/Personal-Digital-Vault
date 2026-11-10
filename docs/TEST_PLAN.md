@@ -153,6 +153,30 @@ All Phase 6 verification targets pass in `apps/api/internal/router` (`TestCmsEnd
   - 10 automated tests in `apps/vault-web/src/components/views.test.tsx` verifying view rendering, masking, and empty states.
   - All 20 Vitest tests pass in `apps/vault-web`.
 
+## Phase 8 backend sync engine & conflict resolution verification targets
+
+- Verify Go backend sync engine:
+  - Delta sync endpoint (`GET /api/v1/vaults/{vaultId}/sync`): returns sync events cursor-paginated with strictly monotonic sequence IDs.
+  - Operation submission (`POST /api/v1/vaults/{vaultId}/sync/operations`):
+    - Monotonic object revision tracking enforces `new_revision = base_revision + 1`.
+    - Idempotency deduplication by `(vault_id, operation_id)` returns the original result without duplicate sequence assignment.
+    - Tombstone deletion creates a tombstone revision and emits a delete sync event.
+    - Revision mismatch returns RFC 7807 problem details with `409 Conflict`, `currentRevision`, and `attemptedBaseRevision`.
+  - Object retrieval (`GET /api/v1/vaults/{vaultId}/objects/{objectId}`): retrieves specific or latest encrypted revisions.
+  - Object upsert (`PUT /api/v1/vaults/{vaultId}/objects/{objectId}`): validates `If-Match-Revision` and increments revision.
+  - Tenant isolation: requests to vaults of another account return 404 Not Found without leaking object existence or sync state.
+- Verify client-side sync engine (`apps/vault-web/src/storage/sync-engine.test.ts`):
+  - Delta sync pulls new remote records and applies them to local IndexedDB.
+  - Push sync drains pending local operations in FIFO sequence.
+  - Server revision conflicts throw `ConflictError` with remote revision details.
+  - Keep-local resolution rebases local changes atop the conflicting remote revision and uploads a new revision.
+  - Remote tombstone deletion clears local IndexedDB record and applies server cursor.
+- Verify conflict resolution UI (`apps/vault-web/src/components/modals/ConflictResolutionModal.test.tsx`):
+  - Side-by-side comparison modal displays local and remote fields with clear visual badges.
+  - Renders tombstone states when a record was deleted on the server.
+  - Invokes resolution callbacks (`onKeepLocal`, `onKeepServer`, `onMerge`) on user action.
+- All Phase 8 verification targets pass in `apps/api/internal/router` (`TestSyncEngineAndConflictResolution`, `TestSyncTenantIsolation`) and `apps/vault-web` (`sync-engine.test.ts`, `ConflictResolutionModal.test.tsx`). Total 27 Vitest tests passing in `vault-web`.
+
 ## Later security and product coverage
 
 Follow the master specification's crypto known-answer and negative tests, backend authorization/tenant isolation tests, offline/conflict tests, CMS schema/revision tests, attachment ciphertext checks, extension origin-boundary tests, and end-to-end flows. Round-trip crypto tests alone are insufficient. Do not use production data in tests.
