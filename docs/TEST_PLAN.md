@@ -32,9 +32,10 @@ These are planned checks. Phase 1's implementation pass did not add or run autom
 - Verify the dedicated Worker success/error/cancellation lifecycle and main-thread responsiveness. Chrome p=4 was tested on one headless Windows host; process RSS, broader device coverage, and true memory-pressure/OOM handling remain outstanding.
 - Run `node packages/crypto-core/test/run-chrome-provider.mjs` to exercise the actual TypeScript provider and Vite Worker URL transform in Chrome; verify p=1/p=4 outputs, cancellation, oversized-input rejection, and heartbeat responsiveness.
 - Freeze and independently verify PDV context, password/recovery envelope, and object ciphertext golden vectors.
-- Add negative tests for tampering, wrong keys/context, malformed encodings, resource caps, cross-vault/object/revision isolation, and unsupported protocol versions.
+- Partial negative coverage implemented: wrong VEK; nonce, wrapped-DEK, ciphertext, and tag bit flips; vault/object/revision/payload-version/purpose substitution; invalid and noncanonical base64url, invalid nonce length, truncated ciphertext, and unsupported envelope/protocol identifiers. Remaining: resource caps and broader boundary coverage.
 - Do not implement streaming attachment crypto until wire framing and truncation/final-tag rules are reviewed and have vectors.
-- These checks are not implemented or run; see `docs/architecture/CRYPTO_TEST_VECTORS.md`.
+- Implemented and run locally: context encoding candidate vector and invalid-field cases, plus the object-envelope negative cases listed above, in the crypto-core Node suite; expected context bytes were reconstructed separately with Node `Buffer` big-endian writes. This is not an independent security review, and GitHub Actions status has not been verified from this environment.
+- Remaining vectors and checks are incomplete; see `docs/architecture/CRYPTO_TEST_VECTORS.md`.
 
 ## Later security and product coverage
 

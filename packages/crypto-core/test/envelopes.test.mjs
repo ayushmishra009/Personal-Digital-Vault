@@ -8,6 +8,8 @@ import {
   createVekEnvelopes,
   decodeRecoverySecret,
   derivePasswordKek,
+  encodeContext,
+  importVek,
   openObject,
   rewrapVekWithPassword,
   sealObject,
@@ -124,6 +126,45 @@ test("Argon2id p=4 exact-tuple KAT and UTF-8 input bytes", async () => {
   });
 });
 
+test("PDV context encoding matches the candidate vector and rejects invalid fields", () => {
+  const context = {
+    protocolVersion: 1,
+    purpose: "record",
+    vaultId: "00112233-4455-6677-8899-aabbccddeeff",
+    objectId: "10213243-5465-7687-98a9-bacbdcedfe0f",
+    revision: 3,
+    payloadVersion: 1,
+  };
+  assert.equal(
+    hex(encodeContext(context)),
+    "504456000001067265636f726400112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f000000000000000300000001",
+  );
+  assert.throws(
+    () => encodeContext({ ...context, protocolVersion: 2 }),
+    /Unsupported protocol version/,
+  );
+  assert.throws(
+    () => encodeContext({ ...context, purpose: "RécOrd" }),
+    /Invalid purpose/,
+  );
+  assert.throws(
+    () => encodeContext({ ...context, vaultId: "not-a-uuid" }),
+    /Invalid UUID/,
+  );
+  assert.throws(
+    () => encodeContext({ ...context, revision: 0 }),
+    /must be positive/,
+  );
+  assert.throws(
+    () => encodeContext({ ...context, revision: Number.MAX_SAFE_INTEGER + 1 }),
+    /Invalid revision/,
+  );
+  assert.throws(
+    () => encodeContext({ ...context, payloadVersion: 0 }),
+    /must be positive/,
+  );
+});
+
 test("creation emits p=4 only; password and independent recovery unlock", async () => {
   const created = await createVekEnvelopes(
     "päss🔐",
@@ -197,6 +238,107 @@ test("creation emits p=4 only; password and independent recovery unlock", async 
       : created.recoverySecret,
   );
   assert.deepEqual(recoveryCopy, created.recoverySecret);
+});
+
+test("object envelopes reject tampering and cross-context substitution", async () => {
+  const created = await createVekEnvelopes(
+    "synthetic-password",
+    provider,
+    deterministicCrypto(),
+  );
+  const context = {
+    protocolVersion: 1,
+    purpose: "record",
+    vaultId: "00112233-4455-6677-8899-aabbccddeeff",
+    objectId: "10213243-5465-7687-98a9-bacbdcedfe0f",
+    revision: 3,
+    payloadVersion: 1,
+  };
+  const envelope = await sealObject(
+    created.vek,
+    context,
+    { synthetic: true },
+    webcrypto,
+  );
+  const changedContexts = [
+    { ...envelope, vaultId: "10112233-4455-6677-8899-aabbccddeeff" },
+    { ...envelope, objectId: "20213243-5465-7687-98a9-bacbdcedfe0f" },
+    { ...envelope, revision: 4 },
+    { ...envelope, payloadVersion: 2 },
+    { ...envelope, purpose: "attachment" },
+  ];
+  for (const changed of changedContexts) {
+    await assert.rejects(openObject(created.vek, changed, webcrypto), {
+      message: "Invalid ciphertext",
+    });
+  }
+
+  const otherVek = await importVek(
+    Uint8Array.from({ length: 32 }, (_, index) => index + 1),
+    webcrypto,
+  );
+  await assert.rejects(openObject(otherVek, envelope, webcrypto), {
+    message: "Invalid ciphertext",
+  });
+
+  for (const field of ["nonce", "wrappedDek", "ciphertext"]) {
+    const bytes = Buffer.from(envelope[field], "base64url");
+    bytes[field === "ciphertext" ? bytes.length - 1 : 0] ^= 1;
+    await assert.rejects(
+      openObject(
+        created.vek,
+        { ...envelope, [field]: bytes.toString("base64url") },
+        webcrypto,
+      ),
+      { message: "Invalid ciphertext" },
+    );
+  }
+  const damagedCiphertext = Buffer.from(envelope.ciphertext, "base64url");
+  damagedCiphertext[0] ^= 1;
+  await assert.rejects(
+    openObject(
+      created.vek,
+      { ...envelope, ciphertext: damagedCiphertext.toString("base64url") },
+      webcrypto,
+    ),
+    { message: "Invalid ciphertext" },
+  );
+  await assert.rejects(
+    openObject(created.vek, { ...envelope, nonce: "AA===" }, webcrypto),
+    /Invalid base64url/,
+  );
+  await assert.rejects(
+    openObject(created.vek, { ...envelope, nonce: "AB" }, webcrypto),
+    /Noncanonical base64url/,
+  );
+  await assert.rejects(
+    openObject(
+      created.vek,
+      { ...envelope, nonce: Buffer.alloc(11).toString("base64url") },
+      webcrypto,
+    ),
+    /Invalid nonce length/,
+  );
+  await assert.rejects(
+    openObject(
+      created.vek,
+      { ...envelope, ciphertext: Buffer.alloc(15).toString("base64url") },
+      webcrypto,
+    ),
+    /Invalid ciphertext/,
+  );
+  await assert.rejects(
+    openObject(
+      created.vek,
+      { ...envelope, algorithm: "AES-128-GCM" },
+      webcrypto,
+    ),
+    /Unsupported envelope/,
+  );
+  await assert.rejects(
+    openObject(created.vek, { ...envelope, protocolVersion: 2 }, webcrypto),
+    /Unsupported protocol version/,
+  );
 });
 
 test("legacy p=1 envelope remains unlockable", async () => {

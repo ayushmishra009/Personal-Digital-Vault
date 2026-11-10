@@ -1,6 +1,6 @@
 # Cryptographic test vectors and verification plan
 
-**Status:** Source-vector inventory and planned PDV vectors. The isolated Argon2 candidate KAT is executable and passes natively and in Node WASM; vectors are not executed against crypto-core. Phase 2 is incomplete.
+**Status:** The isolated Argon2 candidate KAT and a PDV context-encoding candidate vector are executable in crypto-core. The context bytes match a separate Node `Buffer` reconstruction; independent protocol/security review remains outstanding. Remaining PDV vectors and security review are incomplete; Phase 2 is not accepted.
 
 Every implementation must verify primitive known-answer vectors and PDV protocol vectors. Round-trip tests alone are insufficient. Use fixed synthetic values only.
 
@@ -83,7 +83,7 @@ This upstream RustCrypto KAT is used by the Chrome smoke harness to confirm brow
 
 ### PDV context encoding candidate vector
 
-This fixture follows the encoding in `CRYPTO_PROTOCOL.md`; it is a hand-derived expected byte string and still needs executable and independent cross-checking.
+This fixture follows the encoding in `CRYPTO_PROTOCOL.md`. It runs as an executable crypto-core test with negative field checks. The expected bytes also match a separate Node `Buffer` reconstruction using explicit big-endian integer writes; this checks the encoding independently from the TypeScript helper but does not constitute an independent protocol or security review.
 
 ```json
 {
@@ -129,4 +129,4 @@ The executable fixture uses RustCrypto WASM for Argon2id and Web Crypto for HKDF
 
 ## Acceptance status
 
-No executable protocol-level vectors or crypto-core tests exist yet. The isolated Argon2 candidate's KAT does not validate PDV envelope operations. Primitive sources are identified, but PDV-specific golden outputs must be generated and reviewed with the implementation. Do not claim Phase 2 acceptance until known-answer, wrong-context, tampering, malformed-input tests pass in CI and the security review checklist is complete.
+The crypto-core envelope tests cover password/recovery envelopes, KDF compatibility and migration, Worker lifecycle, the context-encoding candidate vector with invalid-field cases, and object-envelope wrong-key, bit-flip, context-substitution, encoding, and truncation rejection cases. The context bytes also match a separate Node `Buffer` encoding cross-check. The isolated Argon2 candidate's KAT does not validate all PDV envelope operations. Deterministic object-envelope golden outputs, broader boundary coverage, and independent security review remain open. Do not claim Phase 2 acceptance until the complete known-answer, wrong-context, tampering, and malformed-input suite passes in CI and the security review checklist is complete.
