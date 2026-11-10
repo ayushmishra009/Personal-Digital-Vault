@@ -57,6 +57,7 @@ export interface LocalDatabase {
     vaultId: string,
     attachmentId: string,
   ): Promise<StoredEncryptedAttachment | null>;
+  listAttachmentsByVault(vaultId: string): Promise<StoredEncryptedAttachment[]>;
   deleteAttachment(vaultId: string, attachmentId: string): Promise<void>;
 
   clear(): Promise<void>;
@@ -291,6 +292,19 @@ class IndexedDBDatabase implements LocalDatabase {
     });
   }
 
+  async listAttachmentsByVault(
+    vaultId: string,
+  ): Promise<StoredEncryptedAttachment[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("encrypted_attachments", "readonly");
+      const index = tx.objectStore("encrypted_attachments").index("vaultId");
+      const req = index.getAll(vaultId);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
   async deleteAttachment(vaultId: string, attachmentId: string): Promise<void> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
@@ -411,6 +425,18 @@ export class MemoryDatabase implements LocalDatabase {
     return (
       this.attachments.get(this.attachmentKey(vaultId, attachmentId)) ?? null
     );
+  }
+
+  async listAttachmentsByVault(
+    vaultId: string,
+  ): Promise<StoredEncryptedAttachment[]> {
+    const result: StoredEncryptedAttachment[] = [];
+    for (const att of this.attachments.values()) {
+      if (att.vaultId === vaultId) {
+        result.push(att);
+      }
+    }
+    return result;
   }
 
   async deleteAttachment(vaultId: string, attachmentId: string): Promise<void> {

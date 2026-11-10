@@ -53,11 +53,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (
-        window.confirm(`Import records from "${file.name}" into local storage?`)
-      ) {
-        await onImportBackup(file);
-      }
+      await onImportBackup(file);
+      // Reset input value so re-selecting the same file triggers change
+      e.target.value = "";
     }
   };
 
@@ -67,19 +65,23 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
         <div>
           <h2>Backup & Emergency Recovery</h2>
           <p className="view-subtitle">
-            Offline recovery secret verification and versioned encrypted archive
-            export/import.
+            Offline recovery secret verification, versioned encrypted archive
+            export, and staging-based restore with conflict safeguards.
           </p>
         </div>
       </div>
 
       <div className="warning-banner" style={{ marginBottom: "1.5rem" }}>
-        <strong>⚠️ Absolute Zero-Knowledge Boundary & Loss Limitation:</strong>
+        <strong>
+          ⚠️ Absolute Zero-Knowledge Boundary & Recovery Limitations:
+        </strong>
         <p style={{ margin: "0.25rem 0 0" }}>
           Your master password and recovery secret derive encryption keys
           client-side. Antigravity/PDV engineers and support staff cannot
           decrypt, reset, or bypass vault credentials under any circumstances.
-          Store your recovery secret in a physical, offline location.
+          Local browser IndexedDB storage can be evicted or cleared by the
+          browser; exporting encrypted portable backups is required for
+          long-term safety.
         </p>
       </div>
 
@@ -133,10 +135,10 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
           )}
         </div>
 
-        {/* Local Encrypted Backup & Restore */}
+        {/* Encrypted Portable Backup Archive */}
         <div className="card">
           <h3 style={{ margin: "0 0 0.5rem", fontSize: "1.1rem" }}>
-            Encrypted Local Archive
+            Encrypted Backup Archive
           </h3>
           <p
             style={{
@@ -145,9 +147,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               margin: "0 0 1.25rem",
             }}
           >
-            Export or restore a snapshot of all locally cached encrypted object
-            envelopes. Backups are encrypted with your VEK and contain zero
-            plaintext data.
+            Export or restore an authenticated, versioned backup archive
+            (.pdvbackup). Contains all encrypted records, attachments, key
+            envelopes, and an integrity manifest verified prior to restoration.
           </p>
 
           <div
@@ -161,7 +163,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                 onClick={onExportBackup}
                 disabled={!activeVault}
               >
-                📥 Export Encrypted JSON Archive
+                📥 Export Encrypted JSON Archive (.pdvbackup)
               </button>
               <div
                 style={{
@@ -170,7 +172,8 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   marginTop: "0.25rem",
                 }}
               >
-                Downloads all ciphertext envelopes for the active vault.
+                Exports authenticated package (AES-256-GCM + HKDF) with
+                integrity manifest.
               </div>
             </div>
 
@@ -184,10 +187,10 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   padding: "0.6rem",
                 }}
               >
-                📤 Import Encrypted JSON Archive
+                📤 Import Encrypted JSON Archive / Restore Backup
                 <input
                   type="file"
-                  accept=".json,application/json"
+                  accept=".pdvbackup,.json,application/json"
                   onChange={handleFileChange}
                   style={{ display: "none" }}
                 />
@@ -199,9 +202,26 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
                   marginTop: "0.25rem",
                 }}
               >
-                Restores encrypted object envelopes into local IndexedDB
-                storage.
+                Validates integrity manifest and opens review staging modal
+                before writing.
               </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: "0.5rem",
+                padding: "0.6rem",
+                backgroundColor: "#f9fafb",
+                borderRadius: "4px",
+                border: "1px solid #e5e7eb",
+                fontSize: "0.74rem",
+                color: "#6b7280",
+              }}
+            >
+              <strong>🔒 Metadata Disclosure:</strong> The backend tracks
+              snapshot ID, creation timestamp, and ciphertext size for
+              compliance and sync cursors. Ciphertext contents, records, and
+              encryption keys never leave the client.
             </div>
           </div>
         </div>

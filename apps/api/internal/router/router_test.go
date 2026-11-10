@@ -1342,3 +1342,184 @@ func TestAttachmentTenantIsolation(t *testing.T) {
 		t.Errorf("expected 404 for cross-tenant delete attachment, got %d", recDelAttB.Code)
 	}
 }
+
+func TestBackupMetadataLifecycle(t *testing.T) {
+	h, _ := setupTestServer()
+
+	cookie, _ := registerAndGetCookie(t, h, "backup-owner@example.com")
+
+	salt := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16))
+	wrapped := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{2}, 40))
+
+	recVault := doRequest(h, "POST", "/api/v1/vaults", handlers.CreateVaultRequest{
+		ProtocolVersion: 1,
+		Envelopes: []handlers.VaultKeyEnvelopeDTO{
+			{
+				EnvelopeType:     "password",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "argon2id13",
+				KDFParameters: map[string]int64{
+					"memoryKiB": 65536, "iterations": 3, "parallelism": 4, "version": 19,
+				},
+				Salt:       salt,
+				WrappedVEK: wrapped,
+			},
+			{
+				EnvelopeType:     "recovery",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "hkdf-sha256",
+				KDFParameters:    map[string]int64{},
+				Salt:             salt,
+				WrappedVEK:       wrapped,
+			},
+		},
+	}, cookie)
+
+	if recVault.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for vault creation, got %d", recVault.Code)
+	}
+
+	var vault handlers.VaultMetadataResponse
+	_ = json.Unmarshal(recVault.Body.Bytes(), &vault)
+
+	fakeDigest := sha256.Sum256([]byte("encrypted-backup-content-1"))
+	fakeDigestB64 := base64.RawURLEncoding.EncodeToString(fakeDigest[:])
+
+	// 1. Post backup metadata
+	recPost := doRequest(h, "POST", "/api/v1/vaults/"+vault.ID+"/backup/metadata", handlers.CreateBackupMetadataRequestDTO{
+		SnapshotID:       "b0000000-0000-4000-8000-000000000001",
+		CiphertextSize:   1024,
+		CiphertextDigest: fakeDigestB64,
+	}, cookie)
+
+	if recPost.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for backup metadata creation, got %d: %s", recPost.Code, recPost.Body.String())
+	}
+
+	var metaResp handlers.BackupMetadataDTO
+	_ = json.Unmarshal(recPost.Body.Bytes(), &metaResp)
+	if metaResp.SnapshotID != "b0000000-0000-4000-8000-000000000001" {
+		t.Errorf("expected snapshotId to match, got %s", metaResp.SnapshotID)
+	}
+	if metaResp.CiphertextSize != 1024 {
+		t.Errorf("expected ciphertextSize 1024, got %d", metaResp.CiphertextSize)
+	}
+	if metaResp.CiphertextDigest != fakeDigestB64 {
+		t.Errorf("expected ciphertextDigest to match, got %s", metaResp.CiphertextDigest)
+	}
+
+	// 2. List backup metadata
+	recList := doRequest(h, "GET", "/api/v1/vaults/"+vault.ID+"/backup/metadata", nil, cookie)
+	if recList.Code != http.StatusOK {
+		t.Fatalf("expected 200 for backup metadata list, got %d: %s", recList.Code, recList.Body.String())
+	}
+	var listResp handlers.BackupMetadataListDTO
+	_ = json.Unmarshal(recList.Body.Bytes(), &listResp)
+	if len(listResp.Items) != 1 {
+		t.Fatalf("expected 1 backup metadata item, got %d", len(listResp.Items))
+	}
+
+	// 3. Post second snapshot
+	fakeDigest2 := sha256.Sum256([]byte("encrypted-backup-content-2"))
+	fakeDigest2B64 := base64.RawURLEncoding.EncodeToString(fakeDigest2[:])
+
+	recPost2 := doRequest(h, "POST", "/api/v1/vaults/"+vault.ID+"/backup/metadata", handlers.CreateBackupMetadataRequestDTO{
+		SnapshotID:       "b0000000-0000-4000-8000-000000000002",
+		CiphertextSize:   2048,
+		CiphertextDigest: fakeDigest2B64,
+	}, cookie)
+	if recPost2.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for second backup snapshot, got %d", recPost2.Code)
+	}
+
+	// 4. Verify list returns 2 snapshots with newest first
+	recList2 := doRequest(h, "GET", "/api/v1/vaults/"+vault.ID+"/backup/metadata", nil, cookie)
+	var listResp2 handlers.BackupMetadataListDTO
+	_ = json.Unmarshal(recList2.Body.Bytes(), &listResp2)
+	if len(listResp2.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(listResp2.Items))
+	}
+	if listResp2.Items[0].SnapshotID != "b0000000-0000-4000-8000-000000000002" {
+		t.Errorf("expected newest snapshot first, got %s", listResp2.Items[0].SnapshotID)
+	}
+
+	// 5. Test invalid payload: negative size
+	recBadSize := doRequest(h, "POST", "/api/v1/vaults/"+vault.ID+"/backup/metadata", handlers.CreateBackupMetadataRequestDTO{
+		SnapshotID:       "b0000000-0000-4000-8000-000000000003",
+		CiphertextSize:   -1,
+		CiphertextDigest: fakeDigestB64,
+	}, cookie)
+	if recBadSize.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for negative size, got %d", recBadSize.Code)
+	}
+
+	// 6. Test invalid payload: invalid digest length
+	recBadDigest := doRequest(h, "POST", "/api/v1/vaults/"+vault.ID+"/backup/metadata", handlers.CreateBackupMetadataRequestDTO{
+		SnapshotID:       "b0000000-0000-4000-8000-000000000004",
+		CiphertextSize:   500,
+		CiphertextDigest: "bm90LXRoaXJ0eS10d28tYnl0ZXM",
+	}, cookie)
+	if recBadDigest.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for bad digest, got %d", recBadDigest.Code)
+	}
+}
+
+func TestBackupTenantIsolation(t *testing.T) {
+	h, _ := setupTestServer()
+
+	cookieA, _ := registerAndGetCookie(t, h, "backup-tenant-a@example.com")
+	cookieB, _ := registerAndGetCookie(t, h, "backup-tenant-b@example.com")
+
+	salt := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16))
+	wrapped := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{2}, 40))
+
+	recVaultA := doRequest(h, "POST", "/api/v1/vaults", handlers.CreateVaultRequest{
+		ProtocolVersion: 1,
+		Envelopes: []handlers.VaultKeyEnvelopeDTO{
+			{
+				EnvelopeType:     "password",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "argon2id13",
+				KDFParameters: map[string]int64{
+					"memoryKiB": 65536, "iterations": 3, "parallelism": 4, "version": 19,
+				},
+				Salt:       salt,
+				WrappedVEK: wrapped,
+			},
+			{
+				EnvelopeType:     "recovery",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "hkdf-sha256",
+				KDFParameters:    map[string]int64{},
+				Salt:             salt,
+				WrappedVEK:       wrapped,
+			},
+		},
+	}, cookieA)
+
+	var vaultA handlers.VaultMetadataResponse
+	_ = json.Unmarshal(recVaultA.Body.Bytes(), &vaultA)
+
+	fakeDigest := sha256.Sum256([]byte("encrypted-backup-content-a"))
+	fakeDigestB64 := base64.RawURLEncoding.EncodeToString(fakeDigest[:])
+
+	// User B attempts to post backup metadata on User A's vault -> 404
+	recPostB := doRequest(h, "POST", "/api/v1/vaults/"+vaultA.ID+"/backup/metadata", handlers.CreateBackupMetadataRequestDTO{
+		SnapshotID:       "b0000000-0000-4000-8000-000000000099",
+		CiphertextSize:   1024,
+		CiphertextDigest: fakeDigestB64,
+	}, cookieB)
+	if recPostB.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-tenant backup post, got %d", recPostB.Code)
+	}
+
+	// User B attempts to list backup metadata on User A's vault -> 404
+	recListB := doRequest(h, "GET", "/api/v1/vaults/"+vaultA.ID+"/backup/metadata", nil, cookieB)
+	if recListB.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-tenant backup list, got %d", recListB.Code)
+	}
+}

@@ -2013,3 +2013,110 @@ func (r *PostgresRepository) GetAttachmentBlob(
 	}
 	return nil, errors.New("blob storage not configured for postgres direct retrieval")
 }
+
+func (r *PostgresRepository) SaveBackupMetadata(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	input *domain.CreateBackupMetadataInput,
+) (*domain.BackupMetadata, error) {
+	var activeVaultID string
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT id FROM vaults WHERE account_id = $1 AND id = $2 AND status = 'active'`,
+		accountID,
+		vaultID,
+	).Scan(&activeVaultID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if input.CiphertextSize <= 0 {
+		return nil, errors.New("ciphertextSize must be positive")
+	}
+	if len(input.CiphertextHash) != 32 {
+		return nil, errors.New("ciphertextHash must be 32 bytes")
+	}
+
+	snapID := input.SnapshotID
+	if snapID == "" {
+		snapID = newUUID()
+	}
+
+	var meta domain.BackupMetadata
+	meta.SnapshotID = snapID
+	meta.AccountID = accountID
+	meta.VaultID = vaultID
+	meta.CiphertextSize = input.CiphertextSize
+	meta.CiphertextHash = input.CiphertextHash
+
+	err = r.db.QueryRowContext(
+		ctx,
+		`INSERT INTO vault_backups (snapshot_id, account_id, vault_id, ciphertext_size, ciphertext_hash, created_at)
+		 VALUES ($1, $2, $3, $4, $5, now())
+		 RETURNING created_at`,
+		snapID,
+		accountID,
+		vaultID,
+		input.CiphertextSize,
+		input.CiphertextHash,
+	).Scan(&meta.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &meta, nil
+}
+
+func (r *PostgresRepository) ListBackupMetadata(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+) ([]domain.BackupMetadata, error) {
+	var activeVaultID string
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT id FROM vaults WHERE account_id = $1 AND id = $2 AND status = 'active'`,
+		accountID,
+		vaultID,
+	).Scan(&activeVaultID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	rows, err := r.db.QueryContext(
+		ctx,
+		`SELECT snapshot_id, account_id, vault_id, ciphertext_size, ciphertext_hash, created_at
+		 FROM vault_backups
+		 WHERE account_id = $1 AND vault_id = $2
+		 ORDER BY created_at DESC`,
+		accountID,
+		vaultID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []domain.BackupMetadata
+	for rows.Next() {
+		var b domain.BackupMetadata
+		if err := rows.Scan(
+			&b.SnapshotID,
+			&b.AccountID,
+			&b.VaultID,
+			&b.CiphertextSize,
+			&b.CiphertextHash,
+			&b.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		list = append(list, b)
+	}
+	return list, rows.Err()
+}

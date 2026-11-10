@@ -181,6 +181,106 @@ export interface BackupMetadata {
   createdAt: ISODateTime;
 }
 
+export interface BackupMetadataList {
+  items: BackupMetadata[];
+}
+
+export interface CreateBackupMetadataRequest {
+  snapshotId: OpaqueId;
+  ciphertextSize: number;
+  ciphertextDigest: Base64Url;
+}
+
+export interface BackupRecordItem {
+  objectId: OpaqueId;
+  revision: number;
+  payloadVersion: number;
+  envelope: EncryptedObjectEnvelope;
+  ciphertextHash: string;
+  updatedAt: ISODateTime;
+}
+
+export interface BackupAttachmentItem {
+  attachmentId: OpaqueId;
+  ciphertextSize: number;
+  ciphertextDigest: Base64Url;
+  ciphertextBase64?: string;
+  updatedAt: ISODateTime;
+}
+
+export interface BackupArchiveManifest {
+  formatVersion: 1;
+  vaultId: OpaqueId;
+  snapshotId: OpaqueId;
+  createdAt: ISODateTime;
+  recordCount: number;
+  attachmentCount: number;
+  recordHashes: Record<string, string>;
+  attachmentHashes: Record<string, string>;
+  rootHash: string;
+}
+
+export interface BackupArchivePayload {
+  formatVersion: 1;
+  protocolVersion: 1;
+  vaultId: OpaqueId;
+  snapshotId: OpaqueId;
+  createdAt: ISODateTime;
+  syncCursor?: string;
+  records: BackupRecordItem[];
+  attachments: BackupAttachmentItem[];
+  manifest: BackupArchiveManifest;
+}
+
+export interface EncryptedBackupPackage {
+  formatVersion: 1;
+  protocolVersion: 1;
+  snapshotId: OpaqueId;
+  vaultId: OpaqueId;
+  createdAt: ISODateTime;
+  algorithm: "AES-256-GCM";
+  kdfAlgorithm: "hkdf-sha256";
+  salt: Base64Url;
+  nonce: Base64Url;
+  keyEnvelopes: VaultKeyEnvelope[];
+  ciphertext: Base64Url;
+  ciphertextSize: number;
+  ciphertextDigest: Base64Url;
+  manifestSummary: {
+    recordCount: number;
+    attachmentCount: number;
+    rootHash: string;
+  };
+}
+
+export type RestoreRecordStatus =
+  "new" | "upgraded" | "identical" | "conflict_older" | "conflict_divergent";
+
+export interface StagedRestoreItem {
+  objectId: OpaqueId;
+  title: string;
+  type: string;
+  status: RestoreRecordStatus;
+  backupRevision: number;
+  localRevision?: number;
+  record: DecryptedRecord;
+  envelope: EncryptedObjectEnvelope;
+}
+
+export interface StagedRestorePlan {
+  vaultId: OpaqueId;
+  snapshotId: OpaqueId;
+  createdAt: ISODateTime;
+  items: StagedRestoreItem[];
+  attachments: BackupAttachmentItem[];
+  summary: {
+    newCount: number;
+    upgradedCount: number;
+    identicalCount: number;
+    conflictCount: number;
+  };
+}
+
 export interface ApiProblem {
   error: {
     code: string;

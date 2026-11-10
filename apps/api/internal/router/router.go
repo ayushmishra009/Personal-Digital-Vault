@@ -80,6 +80,10 @@ func BuildRouter(cfg Config) http.Handler {
 	mux.Handle("PUT /api/v1/vaults/{vaultId}/attachments/{attachmentId}/content", requireActiveSession(handlers.UploadAttachmentContentHandler(cfg.Repo)))
 	mux.Handle("GET /api/v1/vaults/{vaultId}/attachments/{attachmentId}/content", requireActiveSession(handlers.DownloadAttachmentContentHandler(cfg.Repo)))
 
+	// Backup metadata routes (strictly require an active device)
+	mux.Handle("POST /api/v1/vaults/{vaultId}/backup/metadata", requireActiveSession(handlers.CreateBackupMetadataHandler(cfg.Repo)))
+	mux.Handle("GET /api/v1/vaults/{vaultId}/backup/metadata", requireActiveSession(handlers.ListBackupMetadataHandler(cfg.Repo)))
+
 	// CMS & Dynamic App Configuration routes (strictly require an active device)
 	cmsH := &handlers.CmsHandler{Repo: cfg.Repo}
 	mux.Handle("GET /api/v1/app/configuration", requireActiveSession(http.HandlerFunc(cmsH.GetAppConfiguration)))

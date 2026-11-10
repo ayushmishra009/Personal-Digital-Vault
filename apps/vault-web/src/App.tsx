@@ -35,6 +35,8 @@ import type {
   PasswordRecord,
   PaymentRecord,
   SecureNoteRecord,
+  StagedRestorePlan,
+  VaultKeyEnvelope,
 } from "@pdv/data-models";
 
 import { AppNavbar } from "./components/AppNavbar";
@@ -55,6 +57,13 @@ import { UnlockVaultModal } from "./components/modals/UnlockVaultModal";
 import { ChangePasswordModal } from "./components/modals/ChangePasswordModal";
 import { PasswordGeneratorModal } from "./components/modals/PasswordGeneratorModal";
 import { ConflictResolutionModal } from "./components/modals/ConflictResolutionModal";
+import { RestoreStagingModal } from "./components/modals/RestoreStagingModal";
+import {
+  exportVaultBackup,
+  stageVaultBackup,
+  applyRestorePlan,
+  recordBackupMetadataToServer,
+} from "./storage/backup";
 import {
   getSyncEngine,
   type ActiveConflict,
@@ -112,6 +121,8 @@ export function App() {
   const [, setConflicts] = useState<ActiveConflict[]>([]);
   const [selectedConflict, setSelectedConflict] =
     useState<ActiveConflict | null>(null);
+  const [stagedRestorePlan, setStagedRestorePlan] =
+    useState<StagedRestorePlan | null>(null);
 
   // App configuration & theme
   const [appConfig, setAppConfig] = useState<AppConfiguration | null>(null);
@@ -483,25 +494,42 @@ export function App() {
 
   // Backup actions
   const handleExportBackup = async () => {
-    if (!activeVaultId) return;
-    const stored = await recordRepo.listStoredRecords(activeVaultId);
-    const backupData = {
-      version: 1,
-      vaultId: activeVaultId,
-      exportedAt: new Date().toISOString(),
-      recordCount: stored.length,
-      records: stored,
-    };
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `pdv-backup-${activeVaultId.slice(0, 8)}-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast("Encrypted backup downloaded!");
+    if (!activeVaultId || !unlockedKeys[activeVaultId]) {
+      setError("Please unlock the vault before exporting a backup.");
+      return;
+    }
+    const vek = unlockedKeys[activeVaultId];
+    try {
+      const [passwordEnv, recoveryEnv] = await Promise.all([
+        getVaultKeyEnvelope(activeVaultId, "password").catch(() => null),
+        getVaultKeyEnvelope(activeVaultId, "recovery").catch(() => null),
+      ]);
+      const envelopes: VaultKeyEnvelope[] = [];
+      if (passwordEnv) envelopes.push(passwordEnv);
+      if (recoveryEnv) envelopes.push(recoveryEnv);
+
+      const { package: pkg, blob } = await exportVaultBackup({
+        vaultId: activeVaultId,
+        vek,
+        keyEnvelopes: envelopes,
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `vault-backup-${activeVaultId.slice(0, 8)}-${Date.now()}.pdvbackup`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      await recordBackupMetadataToServer(activeVaultId, pkg);
+      showToast(
+        "Encrypted backup package exported and metadata logged to server!",
+      );
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Failed to export backup archive",
+      );
+    }
   };
 
   const handleImportBackup = async (file: File) => {
@@ -509,29 +537,45 @@ export function App() {
       setError("Please unlock the vault before importing records.");
       return;
     }
+    const vek = unlockedKeys[activeVaultId];
     try {
       const text = await file.text();
-      const parsed = JSON.parse(text);
-      if (!Array.isArray(parsed.records)) {
-        throw new Error("Invalid backup format: missing records array");
-      }
-      for (const item of parsed.records) {
-        if (item.envelope) {
-          await recordRepo.putRawStoredRecord({
-            vaultId: activeVaultId,
-            objectId: item.objectId,
-            envelope: item.envelope,
-            revision: item.revision || 1,
-            payloadVersion: 1,
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      }
+      const plan = await stageVaultBackup({
+        rawJsonOrPackage: text,
+        unlockSecret: { vek },
+      });
+      setStagedRestorePlan(plan);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to stage backup archive: invalid format or corrupted file",
+      );
+    }
+  };
+
+  const handleConfirmRestore = async (options: {
+    overwriteConflicts: boolean;
+    selectedObjectIds?: string[];
+  }) => {
+    if (!stagedRestorePlan || !activeVaultId || !unlockedKeys[activeVaultId])
+      return;
+    try {
+      const result = await applyRestorePlan({
+        plan: stagedRestorePlan,
+        overwriteConflicts: options.overwriteConflicts,
+        selectedObjectIds: options.selectedObjectIds,
+      });
       const key = unlockedKeys[activeVaultId];
       await loadRecordsForVault(activeVaultId, key);
-      showToast(`Restored ${parsed.records.length} records into local vault!`);
+      showToast(
+        `Restored ${result.restoredCount} record(s) into local vault! (${result.skippedCount} skipped)`,
+      );
+      setStagedRestorePlan(null);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to import backup");
+      setError(
+        err instanceof Error ? err.message : "Failed to apply restored backup",
+      );
     }
   };
 
@@ -1043,6 +1087,14 @@ export function App() {
           onKeepRemote={handleResolveKeepRemote}
           onMerge={handleResolveMerge}
           onClose={() => setSelectedConflict(null)}
+        />
+      )}
+
+      {stagedRestorePlan && (
+        <RestoreStagingModal
+          plan={stagedRestorePlan}
+          onConfirmRestore={handleConfirmRestore}
+          onClose={() => setStagedRestorePlan(null)}
         />
       )}
     </div>

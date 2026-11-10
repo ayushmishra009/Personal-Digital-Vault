@@ -217,19 +217,44 @@ The repository contained only the master build specification and Git metadata. N
   - Go backend tests in `apps/api/internal/router/router_test.go` (`TestAttachmentLifecycle`, `TestAttachmentTenantIsolation`).
   - 29 Vitest tests in `apps/vault-web` (including `DocumentsView.test.tsx`).
 
+## Phase 10 scope delivered
+
+- Cryptographic backup package & integrity manifest (`@pdv/crypto-core`):
+  - Authenticated versioned container format (`EncryptedBackupPackage`): formatVersion 1, protocolVersion 1, AES-256-GCM + HKDF-SHA256, 16-byte salt, 12-byte random nonce, AAD bound to `PDV/1/backup:{vaultId}:{snapshotId}`.
+  - Key envelopes bundled in archive: `password` and `recovery` envelopes embedded so vaults can be restored on clean browsers using master password or 256-bit recovery secret without prior local or server state.
+  - Deterministic integrity manifest (`BackupArchiveManifest`): Canonical SHA-256 digests over each record and attachment with an aggregated root hash across sorted identifiers and key envelopes. Verified prior to decryption and recomputed upon decryption.
+  - Automated tests: 18 passing tests in `packages/crypto-core` covering complete roundtrip, clean browser restore via password and recovery secret, and rejection of modified ciphertext, bad digest, corrupted salt/nonce, and tampered manifest root hash.
+- OpenAPI 3.1 specification & client types:
+  - Added `Backup` tag, schemas (`BackupMetadata`, `CreateBackupMetadataRequest`, `BackupMetadataList`), and endpoints:
+    - `POST /api/v1/vaults/{vaultId}/backup/metadata`
+    - `GET /api/v1/vaults/{vaultId}/backup/metadata`
+  - Linted with Redocly (0 errors), regenerated client in `@pdv/api-client`, and added schemas in `@pdv/data-models` and `@pdv/validation`.
+- Backend backup snapshot tracking (`apps/api`):
+  - Database migration `00004_vault_backups.sql` for table `vault_backups`.
+  - Repository methods in `Repository`, `MockRepository`, and `PostgresRepository`.
+  - Handlers in `apps/api/internal/handlers/backup.go` mounted under `requireActiveSession`.
+  - Tenant boundary tests `TestBackupMetadataLifecycle` and `TestBackupTenantIsolation` passing 100%.
+- Client backup engine & safe staging reconciler (`apps/vault-web`):
+  - `exportVaultBackup`: Client-side packaging of encrypted records, attachments, sync state, and key envelopes with integrity manifest and download of `.pdvbackup`.
+  - `recordBackupMetadataToServer`: Non-blocking logging of backup metadata to server.
+  - `stageVaultBackup`: Validates schema and digests, decrypts payload in-memory, compares against local records, and categorizes into `new`, `upgraded`, `identical`, `conflict_older`, `conflict_divergent`.
+  - `applyRestorePlan`: Writes restored records and attachments; skips older conflicts by default unless explicitly confirmed.
+  - UI integration: `RestoreStagingModal` interactive review table with conflict warnings, selection toggles, and overwrite checkbox; `RecoveryView` with guidance on browser storage limitations and backup metadata leakage disclosure.
+  - Vitest tests: 35 passing tests in `apps/vault-web` (including 5 backup tests and `RestoreStagingModal.test.tsx`).
+
 ## Not implemented
 
-Remote backup/restore archives (Phase 10), Chrome extension (Phase 11), and release hardening (Phase 12) are not implemented.
+Chrome extension (Phase 11) and release hardening (Phase 12) are not implemented.
 
 ## Verification
 
 - `npx turbo run build test` passed across all workspace packages and apps (9/9 tasks successful).
 - `npx prettier --write .` and `npx eslint .` passed with 0 errors.
-- Go backend unit tests (`internal/auth` and `internal/router`) passed 100%.
-- Client vault, storage, view, sync engine, and attachment Vitest tests passed 100% (29/29 tests passing in `vault-web`).
-- Crypto-core envelopes and attachment stream tests passed 100% (16/16 tests passing).
+- Go backend unit tests (`internal/auth`, `internal/database`, `internal/router`) passed 100%.
+- Client vault, storage, view, sync engine, attachment, and backup Vitest tests passed 100% (35/35 tests passing in `vault-web`).
+- Crypto-core envelopes, attachment stream, and backup package tests passed 100% (18/18 tests passing).
 - TypeScript packages and apps typecheck cleanly with 0 errors.
 
 ## Next phase
 
-Phase 10 — Backup & Restore: Versioned encrypted archive format, full vault export/import staging, integrity manifest, restore conflict safeguards, and recovery verification.
+Phase 11 — Chrome Extension: MV3 manifest, popup and service worker, secure extension authentication session model, origin allowlist, manual credential autofill, domain mismatch warnings, and minimal permissions.

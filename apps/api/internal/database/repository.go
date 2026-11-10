@@ -97,4 +97,8 @@ type Repository interface {
 	DeleteAttachment(ctx context.Context, accountID string, vaultID string, attachmentID string) error
 	SaveAttachmentBlob(ctx context.Context, accountID string, vaultID string, attachmentID string, data []byte) error
 	GetAttachmentBlob(ctx context.Context, accountID string, vaultID string, attachmentID string) ([]byte, error)
+
+	// Backup & Snapshots
+	SaveBackupMetadata(ctx context.Context, accountID string, vaultID string, input *domain.CreateBackupMetadataInput) (*domain.BackupMetadata, error)
+	ListBackupMetadata(ctx context.Context, accountID string, vaultID string) ([]domain.BackupMetadata, error)
 }

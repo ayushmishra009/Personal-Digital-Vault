@@ -176,3 +176,35 @@ Reference: [RustFS 1.0.4 release](https://github.com/rustfs/rustfs/releases) and
    - `DocumentsView`: Interactive file attachment hub with client-side encryption before transfer, upload progress, file size badges, and download & decrypt action.
    - Local caching: `encrypted_attachments` store in IndexedDB caches downloaded/uploaded ciphertext for offline resilience.<br>
      **Reason:** Fulfills Section 5, Section 12, and Section 15 Phase 9 requirements of the Master Build Spec. Enforces end-to-end zero-knowledge secrecy for binary file payloads, memory-controlled streaming encryption, and tamper/truncation resistance.
+
+## ADR-0017: Phase 10 Backup and Restore Architecture, Cryptographic Container, and Staging Engine
+
+**Status:** Accepted for Phase 10<br>
+**Decision:** Implement client-side authenticated backup archives, integrity manifests, pre-restore verification, interactive in-memory staging, conflict safeguards, and backend metadata audit tracking:
+
+1. **Versioned Encrypted Archive Format (`EncryptedBackupPackage`):**
+   - Self-contained, portable single-file container (`.pdvbackup`) containing:
+     - Outer container metadata: `formatVersion = 1`, `protocolVersion = 1`, `snapshotId` (UUID v4), `vaultId`, `createdAt`.
+     - Key envelopes: `keyEnvelopes` (password envelope and independent 256-bit recovery envelope) bundled directly into archive container, enabling complete clean-browser vault restoration with master password or recovery secret without prior local or server state.
+     - Payload encryption: HKDF-SHA256 derives 256-bit AES-GCM key from VEK with random 16-byte salt and info bound to `PDV/1/backup-archive-key`.
+     - AEAD envelope: AES-256-GCM authenticated encryption with 12-byte random nonce and AAD bound to `PDV/1/backup:{vaultId}:{snapshotId}`.
+     - Integrity verification: Pre-decryption SHA-256 ciphertext digest check against `ciphertextDigest` and byte size verification against `ciphertextSize`.
+2. **Deterministic Integrity Manifest (`BackupArchiveManifest`):**
+   - Per-record digests: SHA-256 digest calculated over each object envelope ciphertext.
+   - Per-attachment digests: SHA-256 digest calculated over each attachment stream ciphertext.
+   - Aggregated Root Hash: Deterministic canonical hash computed across sorted record IDs, attachment IDs, and key envelopes. Re-verified both before and after archive decryption.
+   - Any corruption or tampering (bit flip in ciphertext, modified salt/nonce, altered manifest, or mismatched inner record) fails closed immediately with explicit tamper rejection errors.
+3. **Interactive Import & In-Memory Staging Area (`RestoreStagingModal`):**
+   - Archive payload is unpacked and decrypted strictly in transient memory.
+   - Each staged item is compared against local IndexedDB records:
+     - `new`: Object does not exist locally.
+     - `upgraded`: Object exists locally with lower revision (`backupRevision > localRevision`).
+     - `identical`: Same revision and identical ciphertext.
+     - `conflict_older`: Record in backup has an older revision than the local store (`backupRevision < localRevision`).
+     - `conflict_divergent`: Identical revision number but mismatched ciphertext.
+   - **Conflict Safeguards:** Silent overwriting of newer data is strictly prevented. By default, older conflicting records are skipped. Overwriting requires explicit user acknowledgment via an interactive toggle.
+4. **Backend Snapshot Tracking (`vault_backups`):**
+   - Migration `00004_vault_backups.sql` introduces table `vault_backups (snapshot_id, account_id, vault_id, ciphertext_size, ciphertext_hash, created_at)`.
+   - Endpoints: `POST /api/v1/vaults/{vaultId}/backup/metadata` and `GET /api/v1/vaults/{vaultId}/backup/metadata`.
+   - Backend receives strictly opaque snapshot metadata (size, hash, timestamp) for backup history and compliance; plaintext records and backup payloads never touch the server.<br>
+     **Reason:** Fulfills Section 13 ("BACKUP AND RESTORE") and Phase 10 acceptance criteria of the Master Build Spec. Ensures complete zero-knowledge data portability, clean-browser recovery, tamper rejection, and data loss prevention during restoration.

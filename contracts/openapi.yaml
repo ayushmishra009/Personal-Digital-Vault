@@ -22,6 +22,8 @@ tags:
     description: Encrypted object revision synchronization
   - name: Attachments
     description: Encrypted attachment metadata and upload/download sessions
+  - name: Backup
+    description: Encrypted vault backup metadata and snapshot tracking
   - name: CMS
     description: Dynamic product configuration and administration
 security: []
@@ -718,6 +720,54 @@ paths:
               schema:
                 type: string
                 format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vaultId}/backup/metadata:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+    post:
+      tags: [Backup]
+      operationId: createBackupMetadata
+      summary: Record metadata for an encrypted client backup archive
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBackupMetadataRequest"
+      responses:
+        "201":
+          description: Backup metadata recorded successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupMetadata"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+    get:
+      tags: [Backup]
+      operationId: listBackupMetadata
+      summary: List backup snapshots recorded for this vault
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: List of backup snapshots
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupMetadataList"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1930,7 +1980,8 @@ components:
     AttachmentUploadSessionResponse:
       type: object
       additionalProperties: false
-      required: [attachmentId, uploadUrl, objectKey, expiresAt, maxCiphertextSize]
+      required:
+        [attachmentId, uploadUrl, objectKey, expiresAt, maxCiphertextSize]
       properties:
         attachmentId:
           type: string
@@ -1972,3 +2023,48 @@ components:
         expiresAt:
           type: string
           format: date-time
+
+    BackupMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        [snapshotId, vaultId, ciphertextSize, ciphertextDigest, createdAt]
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        vaultId:
+          type: string
+          format: uuid
+        ciphertextSize:
+          type: integer
+          minimum: 1
+        ciphertextDigest:
+          $ref: "#/components/schemas/Base64Url"
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateBackupMetadataRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotId, ciphertextSize, ciphertextDigest]
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        ciphertextSize:
+          type: integer
+          minimum: 1
+        ciphertextDigest:
+          $ref: "#/components/schemas/Base64Url"
+
+    BackupMetadataList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackupMetadata"

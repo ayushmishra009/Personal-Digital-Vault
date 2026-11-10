@@ -37,6 +37,7 @@ type MockRepository struct {
 	vaultSeq       map[string]int64                    // vaultID -> monotonic sequence
 	attachments    map[string]*domain.Attachment       // attachmentID -> attachment
 	attachmentBlobs map[string][]byte                  // attachmentID -> ciphertext bytes
+	backups        map[string][]*domain.BackupMetadata // accountID:vaultID -> []BackupMetadata
 	seq            int
 }
 
@@ -62,6 +63,7 @@ func NewMockRepository() *MockRepository {
 		vaultSeq:        make(map[string]int64),
 		attachments:     make(map[string]*domain.Attachment),
 		attachmentBlobs: make(map[string][]byte),
+		backups:         make(map[string][]*domain.BackupMetadata),
 	}
 }
 
@@ -1416,4 +1418,67 @@ func (m *MockRepository) GetAttachmentBlob(
 	}
 	return blob, nil
 }
+
+func (m *MockRepository) SaveBackupMetadata(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	input *domain.CreateBackupMetadataInput,
+) (*domain.BackupMetadata, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	v, exists := m.vaults[accountID+":"+vaultID]
+	if !exists || v.Status != "active" {
+		return nil, ErrNotFound
+	}
+
+	if input.CiphertextSize <= 0 {
+		return nil, errors.New("ciphertextSize must be positive")
+	}
+	if len(input.CiphertextHash) != 32 {
+		return nil, errors.New("ciphertextHash must be 32 bytes")
+	}
+
+	snapID := input.SnapshotID
+	if snapID == "" {
+		snapID = m.nextUUID()
+	}
+
+	meta := &domain.BackupMetadata{
+		SnapshotID:     snapID,
+		AccountID:      accountID,
+		VaultID:        vaultID,
+		CiphertextSize: input.CiphertextSize,
+		CiphertextHash: input.CiphertextHash,
+		CreatedAt:      time.Now().UTC(),
+	}
+
+	key := accountID + ":" + vaultID
+	m.backups[key] = append([]*domain.BackupMetadata{meta}, m.backups[key]...)
+	return meta, nil
+}
+
+func (m *MockRepository) ListBackupMetadata(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+) ([]domain.BackupMetadata, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	v, exists := m.vaults[accountID+":"+vaultID]
+	if !exists || v.Status != "active" {
+		return nil, ErrNotFound
+	}
+
+	key := accountID + ":" + vaultID
+	items := m.backups[key]
+	res := make([]domain.BackupMetadata, len(items))
+	for i, b := range items {
+		res[i] = *b
+	}
+	return res, nil
+}
+
 

@@ -152,6 +152,21 @@ type AttachmentCompleteInput struct {
 	CiphertextHash []byte
 }
 
+type BackupMetadata struct {
+	SnapshotID     string
+	AccountID      string
+	VaultID        string
+	CiphertextSize int64
+	CiphertextHash []byte
+	CreatedAt      time.Time
+}
+
+type CreateBackupMetadataInput struct {
+	SnapshotID     string
+	CiphertextSize int64
+	CiphertextHash []byte
+}
+
 type AuditEvent struct {
 	ID        string
 	AccountID string

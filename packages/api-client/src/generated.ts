@@ -425,6 +425,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/vaults/{vaultId}/backup/metadata": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+      };
+      cookie?: never;
+    };
+    /** List backup snapshots recorded for this vault */
+    get: operations["listBackupMetadata"];
+    put?: never;
+    /** Record metadata for an encrypted client backup archive */
+    post: operations["createBackupMetadata"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/app/configuration": {
     parameters: {
       query?: never;
@@ -983,6 +1003,25 @@ export interface components {
       ciphertextDigest: components["schemas"]["Base64Url"];
       /** Format: date-time */
       expiresAt: string;
+    };
+    BackupMetadata: {
+      /** Format: uuid */
+      snapshotId: string;
+      /** Format: uuid */
+      vaultId: string;
+      ciphertextSize: number;
+      ciphertextDigest: components["schemas"]["Base64Url"];
+      /** Format: date-time */
+      createdAt: string;
+    };
+    CreateBackupMetadataRequest: {
+      /** Format: uuid */
+      snapshotId: string;
+      ciphertextSize: number;
+      ciphertextDigest: components["schemas"]["Base64Url"];
+    };
+    BackupMetadataList: {
+      items: components["schemas"]["BackupMetadata"][];
     };
   };
   responses: {
@@ -1826,6 +1865,60 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+    };
+  };
+  listBackupMetadata: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of backup snapshots */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BackupMetadataList"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  createBackupMetadata: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateBackupMetadataRequest"];
+      };
+    };
+    responses: {
+      /** @description Backup metadata recorded successfully */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BackupMetadata"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
     };
   };
   getAppConfiguration: {

@@ -120,7 +120,10 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
       );
 
       // Compute SHA-256 digest
-      const digestBuf = await crypto.subtle.digest("SHA-256", toBuffer(ciphertext));
+      const digestBuf = await crypto.subtle.digest(
+        "SHA-256",
+        toBuffer(ciphertext),
+      );
       const ciphertextDigest = bufferToBase64Url(new Uint8Array(digestBuf));
 
       setUploadStatus("Requesting upload session...");
@@ -188,7 +191,10 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
       );
 
       // 3. Verify digest
-      const digestBuf = await crypto.subtle.digest("SHA-256", toBuffer(ciphertext));
+      const digestBuf = await crypto.subtle.digest(
+        "SHA-256",
+        toBuffer(ciphertext),
+      );
       const computedDigest = bufferToBase64Url(new Uint8Array(digestBuf));
       if (computedDigest !== session.ciphertextDigest) {
         throw new Error(

@@ -1092,3 +1092,404 @@ export async function openAttachmentStream(
   }
   return result;
 }
+
+export { encodeBase64Url, decodeBase64Url };
+
+export type BackupRecordItem = Readonly<{
+  objectId: string;
+  revision: number;
+  payloadVersion: number;
+  envelope: ObjectEnvelope;
+  ciphertextHash: string;
+  updatedAt: string;
+}>;
+
+export type BackupAttachmentItem = Readonly<{
+  attachmentId: string;
+  ciphertextSize: number;
+  ciphertextDigest: string;
+  ciphertextBase64?: string;
+  updatedAt: string;
+}>;
+
+export type BackupArchiveManifest = Readonly<{
+  formatVersion: 1;
+  vaultId: string;
+  snapshotId: string;
+  createdAt: string;
+  recordCount: number;
+  attachmentCount: number;
+  recordHashes: Readonly<Record<string, string>>;
+  attachmentHashes: Readonly<Record<string, string>>;
+  rootHash: string;
+}>;
+
+export type BackupArchivePayload = Readonly<{
+  formatVersion: 1;
+  protocolVersion: 1;
+  vaultId: string;
+  snapshotId: string;
+  createdAt: string;
+  syncCursor?: string;
+  records: readonly BackupRecordItem[];
+  attachments: readonly BackupAttachmentItem[];
+  manifest: BackupArchiveManifest;
+}>;
+
+export type EncryptedBackupPackage = Readonly<{
+  formatVersion: 1;
+  protocolVersion: 1;
+  snapshotId: string;
+  vaultId: string;
+  createdAt: string;
+  algorithm: "AES-256-GCM";
+  kdfAlgorithm: "hkdf-sha256";
+  salt: string;
+  nonce: string;
+  keyEnvelopes: readonly VekEnvelope[];
+  ciphertext: string;
+  ciphertextSize: number;
+  ciphertextDigest: string;
+  manifestSummary: Readonly<{
+    recordCount: number;
+    attachmentCount: number;
+    rootHash: string;
+  }>;
+}>;
+
+export async function computeSha256(
+  data: Uint8Array,
+  cryptoProvider: Crypto = globalThis.crypto,
+): Promise<Uint8Array> {
+  const digestBuffer = await cryptoProvider.subtle.digest(
+    "SHA-256",
+    copyBuffer(data),
+  );
+  return new Uint8Array(digestBuffer);
+}
+
+export async function computeDigest(
+  data: Uint8Array,
+  cryptoProvider: Crypto = globalThis.crypto,
+): Promise<string> {
+  const bytes = await computeSha256(data, cryptoProvider);
+  return encodeBase64Url(bytes);
+}
+
+export async function computeHexDigest(
+  data: Uint8Array,
+  cryptoProvider: Crypto = globalThis.crypto,
+): Promise<string> {
+  const bytes = await computeSha256(data, cryptoProvider);
+  let hex = "";
+  for (const b of bytes) {
+    hex += b.toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+export async function calculateManifestRootHash(
+  manifest: {
+    vaultId: string;
+    snapshotId: string;
+    recordHashes: Readonly<Record<string, string>>;
+    attachmentHashes: Readonly<Record<string, string>>;
+    keyEnvelopes?: readonly VekEnvelope[];
+  },
+  cryptoProvider: Crypto = globalThis.crypto,
+): Promise<string> {
+  const lines: string[] = [
+    `vault:${manifest.vaultId}`,
+    `snapshot:${manifest.snapshotId}`,
+  ];
+
+  const sortedRecordIds = Object.keys(manifest.recordHashes).sort();
+  for (const id of sortedRecordIds) {
+    lines.push(`record:${id}:${manifest.recordHashes[id]}`);
+  }
+
+  const sortedAttIds = Object.keys(manifest.attachmentHashes).sort();
+  for (const id of sortedAttIds) {
+    lines.push(`attachment:${id}:${manifest.attachmentHashes[id]}`);
+  }
+
+  if (manifest.keyEnvelopes) {
+    const sortedEnvelopes = [...manifest.keyEnvelopes].sort((a, b) =>
+      a.envelopeType.localeCompare(b.envelopeType),
+    );
+    for (const env of sortedEnvelopes) {
+      lines.push(
+        `envelope:${env.envelopeType}:${env.keyWrapAlgorithm}:${env.salt}:${env.wrappedVek}`,
+      );
+    }
+  }
+
+  const manifestData = UTF8.encode(lines.join("\n"));
+  return computeHexDigest(manifestData, cryptoProvider);
+}
+
+export async function deriveBackupKey(
+  vek: CryptoKey,
+  salt: Uint8Array,
+  vaultId: string,
+  cryptoProvider: Crypto = globalThis.crypto,
+): Promise<CryptoKey> {
+  assertLength(salt, 16, "backup salt");
+  const vaultIdBytes = parseUuid(vaultId);
+  const infoPrefix = UTF8.encode("PDV/1/backup-archive-key\u0000");
+  const info = new Uint8Array(infoPrefix.length + vaultIdBytes.length);
+  info.set(infoPrefix);
+  info.set(vaultIdBytes, infoPrefix.length);
+
+  return cryptoProvider.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: copyBuffer(salt),
+      info: copyBuffer(info),
+    },
+    vek,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+export interface SealBackupPackageOptions {
+  vaultId: string;
+  snapshotId: string;
+  createdAt: string;
+  keyEnvelopes: readonly VekEnvelope[];
+  syncCursor?: string;
+  records: readonly BackupRecordItem[];
+  attachments: readonly BackupAttachmentItem[];
+}
+
+export async function sealBackupPackage(
+  vek: CryptoKey,
+  options: SealBackupPackageOptions,
+  cryptoProvider: Crypto = globalThis.crypto,
+): Promise<EncryptedBackupPackage> {
+  const {
+    vaultId,
+    snapshotId,
+    createdAt,
+    keyEnvelopes,
+    syncCursor,
+    records,
+    attachments,
+  } = options;
+
+  const recordHashes: Record<string, string> = {};
+  for (const r of records) {
+    recordHashes[r.objectId] = r.ciphertextHash;
+  }
+
+  const attachmentHashes: Record<string, string> = {};
+  for (const a of attachments) {
+    attachmentHashes[a.attachmentId] = a.ciphertextDigest;
+  }
+
+  const rootHash = await calculateManifestRootHash(
+    {
+      vaultId,
+      snapshotId,
+      recordHashes,
+      attachmentHashes,
+      keyEnvelopes,
+    },
+    cryptoProvider,
+  );
+
+  const manifest: BackupArchiveManifest = {
+    formatVersion: 1,
+    vaultId,
+    snapshotId,
+    createdAt,
+    recordCount: records.length,
+    attachmentCount: attachments.length,
+    recordHashes,
+    attachmentHashes,
+    rootHash,
+  };
+
+  const payload: BackupArchivePayload = {
+    formatVersion: 1,
+    protocolVersion: 1,
+    vaultId,
+    snapshotId,
+    createdAt,
+    ...(syncCursor ? { syncCursor } : {}),
+    records,
+    attachments,
+    manifest,
+  };
+
+  const plaintext = canonicalizeJson(payload);
+  const salt = cryptoProvider.getRandomValues(new Uint8Array(16));
+  const nonce = cryptoProvider.getRandomValues(
+    new Uint8Array(AES_GCM_NONCE_BYTES),
+  );
+  const backupKey = await deriveBackupKey(vek, salt, vaultId, cryptoProvider);
+
+  const aad = UTF8.encode(`PDV/1/backup:${vaultId}:${snapshotId}`);
+
+  const ciphertextBuffer = await cryptoProvider.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv: copyBuffer(nonce),
+      additionalData: copyBuffer(aad),
+      tagLength: AES_GCM_TAG_BITS,
+    },
+    backupKey,
+    copyBuffer(plaintext),
+  );
+
+  const ciphertextBytes = new Uint8Array(ciphertextBuffer);
+  const ciphertextDigest = await computeDigest(ciphertextBytes, cryptoProvider);
+
+  return {
+    formatVersion: 1,
+    protocolVersion: 1,
+    snapshotId,
+    vaultId,
+    createdAt,
+    algorithm: "AES-256-GCM",
+    kdfAlgorithm: "hkdf-sha256",
+    salt: encodeBase64Url(salt),
+    nonce: encodeBase64Url(nonce),
+    keyEnvelopes,
+    ciphertext: encodeBase64Url(ciphertextBytes),
+    ciphertextSize: ciphertextBytes.length,
+    ciphertextDigest,
+    manifestSummary: {
+      recordCount: records.length,
+      attachmentCount: attachments.length,
+      rootHash,
+    },
+  };
+}
+
+export async function openBackupPackage(
+  pkg: EncryptedBackupPackage,
+  vek: CryptoKey,
+  cryptoProvider: Crypto = globalThis.crypto,
+): Promise<BackupArchivePayload> {
+  if (pkg.formatVersion !== 1 || pkg.protocolVersion !== 1) {
+    throw new Error(
+      `Unsupported backup format version: ${pkg.formatVersion}.${pkg.protocolVersion}`,
+    );
+  }
+  if (pkg.algorithm !== "AES-256-GCM" || pkg.kdfAlgorithm !== "hkdf-sha256") {
+    throw new Error(
+      `Unsupported backup crypto algorithm: ${pkg.algorithm}/${pkg.kdfAlgorithm}`,
+    );
+  }
+
+  const salt = decodeBase64Url(pkg.salt);
+  assertLength(salt, 16, "backup salt");
+  const nonce = decodeBase64Url(pkg.nonce);
+  assertLength(nonce, AES_GCM_NONCE_BYTES, "backup nonce");
+
+  const ciphertextBytes = decodeBase64Url(pkg.ciphertext);
+  if (ciphertextBytes.length !== pkg.ciphertextSize) {
+    throw new Error(
+      `Backup ciphertext size mismatch: expected ${pkg.ciphertextSize}, got ${ciphertextBytes.length}`,
+    );
+  }
+
+  const computedDigest = await computeDigest(ciphertextBytes, cryptoProvider);
+  if (computedDigest !== pkg.ciphertextDigest) {
+    throw new Error(
+      "Backup archive ciphertext digest mismatch (corrupted or tampered archive)",
+    );
+  }
+
+  const backupKey = await deriveBackupKey(
+    vek,
+    salt,
+    pkg.vaultId,
+    cryptoProvider,
+  );
+  const aad = UTF8.encode(`PDV/1/backup:${pkg.vaultId}:${pkg.snapshotId}`);
+
+  let plaintextBuffer: ArrayBuffer;
+  try {
+    plaintextBuffer = await cryptoProvider.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: copyBuffer(nonce),
+        additionalData: copyBuffer(aad),
+        tagLength: AES_GCM_TAG_BITS,
+      },
+      backupKey,
+      copyBuffer(ciphertextBytes),
+    );
+  } catch {
+    throw new Error(
+      "Backup archive decryption failed (invalid key or tampered ciphertext)",
+    );
+  }
+
+  const plaintextJson = new TextDecoder().decode(plaintextBuffer);
+  let payload: BackupArchivePayload;
+  try {
+    payload = JSON.parse(plaintextJson);
+  } catch {
+    throw new Error("Failed to parse decrypted backup archive payload");
+  }
+
+  if (
+    payload.formatVersion !== 1 ||
+    payload.vaultId !== pkg.vaultId ||
+    payload.snapshotId !== pkg.snapshotId
+  ) {
+    throw new Error(
+      "Backup archive payload headers do not match archive container metadata",
+    );
+  }
+
+  const manifest = payload.manifest;
+  if (!manifest || manifest.rootHash !== pkg.manifestSummary.rootHash) {
+    throw new Error(
+      "Backup archive root hash mismatch between payload manifest and outer container",
+    );
+  }
+
+  for (const record of payload.records) {
+    const expectedHash = manifest.recordHashes[record.objectId];
+    if (!expectedHash || expectedHash !== record.ciphertextHash) {
+      throw new Error(
+        `Integrity check failed: record ${record.objectId} ciphertext hash does not match manifest`,
+      );
+    }
+  }
+
+  for (const att of payload.attachments) {
+    const expectedDigest = manifest.attachmentHashes[att.attachmentId];
+    if (!expectedDigest || expectedDigest !== att.ciphertextDigest) {
+      throw new Error(
+        `Integrity check failed: attachment ${att.attachmentId} digest does not match manifest`,
+      );
+    }
+  }
+
+  const recomputedRoot = await calculateManifestRootHash(
+    {
+      vaultId: pkg.vaultId,
+      snapshotId: pkg.snapshotId,
+      recordHashes: manifest.recordHashes,
+      attachmentHashes: manifest.attachmentHashes,
+      keyEnvelopes: pkg.keyEnvelopes,
+    },
+    cryptoProvider,
+  );
+
+  if (recomputedRoot !== manifest.rootHash) {
+    throw new Error(
+      "Integrity check failed: recomputed manifest root hash does not match archive manifest",
+    );
+  }
+
+  return payload;
+}

@@ -396,6 +396,86 @@ export const AttachmentDownloadSessionResponseSchema = z.strictObject({
   expiresAt: DateTimeSchema,
 });
 
+export const BackupMetadataSchema = z.strictObject({
+  snapshotId: OpaqueIdSchema,
+  vaultId: OpaqueIdSchema,
+  ciphertextSize: z.number().int().positive(),
+  ciphertextDigest: Base64UrlSchema,
+  createdAt: DateTimeSchema,
+});
+
+export const BackupMetadataListSchema = z.strictObject({
+  items: z.array(BackupMetadataSchema),
+});
+
+export const CreateBackupMetadataRequestSchema = z.strictObject({
+  snapshotId: OpaqueIdSchema,
+  ciphertextSize: z.number().int().positive(),
+  ciphertextDigest: Base64UrlSchema,
+});
+
+export const BackupRecordItemSchema = z.strictObject({
+  objectId: OpaqueIdSchema,
+  revision: z.number().int().positive(),
+  payloadVersion: z.number().int().positive(),
+  envelope: EncryptedObjectEnvelopeSchema,
+  ciphertextHash: z.string().min(1),
+  updatedAt: DateTimeSchema,
+});
+
+export const BackupAttachmentItemSchema = z.strictObject({
+  attachmentId: OpaqueIdSchema,
+  ciphertextSize: z.number().int().positive(),
+  ciphertextDigest: Base64UrlSchema,
+  ciphertextBase64: z.string().optional(),
+  updatedAt: DateTimeSchema,
+});
+
+export const BackupArchiveManifestSchema = z.strictObject({
+  formatVersion: z.literal(1),
+  vaultId: OpaqueIdSchema,
+  snapshotId: OpaqueIdSchema,
+  createdAt: DateTimeSchema,
+  recordCount: z.number().int().nonnegative(),
+  attachmentCount: z.number().int().nonnegative(),
+  recordHashes: z.record(z.string(), z.string()),
+  attachmentHashes: z.record(z.string(), z.string()),
+  rootHash: z.string().min(32),
+});
+
+export const BackupArchivePayloadSchema = z.strictObject({
+  formatVersion: z.literal(1),
+  protocolVersion: z.literal(1),
+  vaultId: OpaqueIdSchema,
+  snapshotId: OpaqueIdSchema,
+  createdAt: DateTimeSchema,
+  syncCursor: z.string().optional(),
+  records: z.array(BackupRecordItemSchema),
+  attachments: z.array(BackupAttachmentItemSchema),
+  manifest: BackupArchiveManifestSchema,
+});
+
+export const EncryptedBackupPackageSchema = z.strictObject({
+  formatVersion: z.literal(1),
+  protocolVersion: z.literal(1),
+  snapshotId: OpaqueIdSchema,
+  vaultId: OpaqueIdSchema,
+  createdAt: DateTimeSchema,
+  algorithm: z.literal("AES-256-GCM"),
+  kdfAlgorithm: z.literal("hkdf-sha256"),
+  salt: Base64UrlSchema,
+  nonce: Base64UrlSchema,
+  keyEnvelopes: z.array(VaultKeyEnvelopeSchema),
+  ciphertext: Base64UrlSchema,
+  ciphertextSize: z.number().int().positive(),
+  ciphertextDigest: Base64UrlSchema,
+  manifestSummary: z.strictObject({
+    recordCount: z.number().int().nonnegative(),
+    attachmentCount: z.number().int().nonnegative(),
+    rootHash: z.string().min(32),
+  }),
+});
+
 export type VaultKeyEnvelopeInput = z.input<typeof VaultKeyEnvelopeSchema>;
 export type CreateVaultRequestInput = z.input<typeof CreateVaultRequestSchema>;
 export type EncryptedObjectEnvelopeInput = z.input<

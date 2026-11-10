@@ -200,6 +200,30 @@ All Phase 6 verification targets pass in `apps/api/internal/router` (`TestCmsEnd
   - `DocumentsView.test.tsx`: validates empty state rendering, streaming AEAD banner, and upload button state.
   - Total 29 Vitest tests passing in `apps/vault-web`.
 
+## Phase 10 backup and restore verification targets
+
+- Verify cryptographic backup package & integrity manifest (`packages/crypto-core/test/backup.test.mjs`):
+  - Full archive roundtrip: `sealBackupPackage` and `openBackupPackage` with records, attachments, key envelopes, and sync cursor.
+  - Clean test browser restoration: Unwraps VEK from embedded password and recovery envelopes, decrypting the archive without prior session or local state.
+  - Tamper detection negative tests:
+    - Ciphertext bit-flipping fails SHA-256 pre-check before decryption (`ciphertext digest mismatch`).
+    - Ciphertext length modification fails size check (`size mismatch`).
+    - Salt/nonce bit-flipping fails AES-GCM decryption (`decryption failed`).
+    - Altered record ciphertext fails manifest check (`record ciphertext hash does not match manifest`).
+    - Altered manifest root hash fails manifest integrity check (`manifest root hash does not match`).
+  - Total 18 tests passing in `packages/crypto-core`.
+- Verify Go backend backup handlers (`apps/api/internal/router/router_test.go`):
+  - `TestBackupMetadataLifecycle`: Creates backup snapshot metadata, asserts 201 Created and fields, verifies list ordering (newest snapshot first), and rejects invalid payloads (negative sizes, invalid digests).
+  - `TestBackupTenantIsolation`: Cross-tenant access rejection (Account B cannot post or list backup metadata on Account A's vault -> 404).
+- Verify client backup engine & safe staging reconciler (`apps/vault-web/src/storage/backup.test.ts`):
+  - Exports valid `EncryptedBackupPackage` with correct snapshotId, records, attachments, and SHA-256 digests.
+  - Clean browser restore using 256-bit recovery secret restores all records and attachments into an empty database.
+  - Clean browser restore using master password restores all records into an empty database.
+  - Conflict safeguard: Older backup revisions (rev 2 vs local rev 5) are flagged as `conflict_older` and skipped by default to prevent silent overwriting. Explicit `overwriteConflicts: true` allows user-confirmed overwrite.
+  - Corrupt archive rejection: Rejects non-JSON input, invalid schemas, and tampered ciphertexts.
+  - `RestoreStagingModal.test.tsx`: Verifies staging table render, summary counts, conflict safeguard warning banner, and force overwrite checkbox.
+  - Total 35 Vitest tests passing in `apps/vault-web`.
+
 ## Later security and product coverage
 
 Follow the master specification's crypto known-answer and negative tests, backend authorization/tenant isolation tests, offline/conflict tests, CMS schema/revision tests, attachment ciphertext checks, extension origin-boundary tests, and end-to-end flows. Round-trip crypto tests alone are insufficient. Do not use production data in tests.

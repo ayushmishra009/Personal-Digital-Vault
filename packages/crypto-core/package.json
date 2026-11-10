@@ -10,7 +10,7 @@
   "scripts": {
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "test": "node test/envelopes.test.mjs && node test/attachments.test.mjs",
+    "test": "node test/envelopes.test.mjs && node test/attachments.test.mjs && node test/backup.test.mjs",
     "test:browser": "node test/run-chrome-provider.mjs"
   },
   "dependencies": {
