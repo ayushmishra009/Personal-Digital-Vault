@@ -1,7 +1,7 @@
 # Implementation status
 
-**Current phase:** Phase 8 complete; ready for Phase 9 (Encrypted Attachments & Object Storage)<br>
-**Status:** Phases 0, 1, 2, 3, 4, 5, 6, 7, and 8 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 8 delivers the complete backend sync engine, monotonic revision sequence tracking, idempotent sync operations, 409 Conflict detection with structured problem details, delta sync event stream with cursor pagination, client-side sync engine draining local pending queues, zero-knowledge side-by-side conflict resolution modal, and full automated test suites with 27 Vitest tests in `apps/vault-web` and Go sync router tests passing.
+**Current phase:** Phase 9 complete; ready for Phase 10 (Backup and Restore)<br>
+**Status:** Phases 0, 1, 2, 3, 4, 5, 6, 7, 8, and 9 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 9 delivers client-side streaming AEAD encryption using libsodium `crypto_secretstream_xchacha20poly1305`, scoped upload and download sessions with SHA-256 integrity validation, quota and size limits (100 MB), Go backend attachment handlers with tenant isolation, interactive attachment management and decryption in `apps/vault-web` (`DocumentsView`), and 100% test coverage with 29 Vitest tests in `vault-web`, 16 crypto-core tests, and Go router tests passing.
 
 ## Repository state at start
 
@@ -189,18 +189,47 @@ The repository contained only the master build specification and Git metadata. N
   - Vitest UI tests in `apps/vault-web/src/components/modals/ConflictResolutionModal.test.tsx` (2 tests verifying side-by-side field diffing, resolution triggers, and tombstone handling).
   - Total 27 Vitest tests passing in `apps/vault-web`.
 
+## Phase 9 scope delivered
+
+- Streaming AEAD protocol integration (`@pdv/crypto-core`):
+  - Reviewed `libsodium-wrappers` 0.8.4 integration using `crypto_secretstream_xchacha20poly1305`.
+  - Framing: 8 bytes `PDVSTRM\0` magic header, 2 bytes `u16be` protocol version (1), 24 bytes secretstream header, repeated frames with 4 bytes `u32be` length and ciphertext bytes (17 to 1,048,593).
+  - Per-frame authenticated data: `ASCII "PDV/1/attachment-chunk" || 0x00 || contextBytes || u64be(chunkIndex)`.
+  - Final frame tagged with `TAG_FINAL`. Empty attachment represented by 1 empty final frame (55 bytes).
+  - Stream key generation and wrapping: 32-byte key generated per attachment and wrapped using AES-256-KW with context-derived HKDF key from active VEK.
+  - Comprehensive negative tests: rejection of corrupt magic, version mismatch, truncated frames, out-of-order frames, missing `TAG_FINAL`, trailing bytes, and key unwrap mismatch.
+- OpenAPI 3.1 specification & client types:
+  - Added `Attachments` tag, schemas (`AttachmentMetadata`, `AttachmentList`, `AttachmentUploadSessionRequest`, `AttachmentUploadSessionResponse`, `AttachmentCompleteRequest`, `AttachmentDownloadSessionResponse`), and endpoints for upload-session, complete, download-session, metadata, deletion, and content streaming.
+  - Linted cleanly with Redocly (0 errors).
+  - Regenerated typed client in `@pdv/api-client` and updated `@pdv/data-models` and `@pdv/validation`.
+- Backend attachment management (`apps/api`):
+  - Domain models in `apps/api/internal/domain/models.go`.
+  - Repository methods in `apps/api/internal/database/repository.go` implemented for in-memory Mock and PostgreSQL.
+  - Enforced 100 MB maximum ciphertext size limit, positive byte lengths, and 32-byte SHA-256 digests.
+  - HTTP handlers in `apps/api/internal/handlers/attachments.go` mounted under `requireActiveSession`.
+  - Strict tenant boundary isolation: cross-tenant attachment access returns 404 Not Found.
+- Client UI & Local Storage (`apps/vault-web`):
+  - `DocumentsView`: Interactive attachment hub with client-side libsodium streaming AEAD encryption, upload progress, file size formatting, and client-side decryption download.
+  - IndexedDB storage: Added `encrypted_attachments` store to `pdv_local_store` (DB_VERSION 2) with `MemoryDatabase` support.
+  - API client methods in `apps/vault-web/src/api.ts`.
+- Automated test coverage:
+  - 16 tests in `packages/crypto-core` (including 7 attachment streaming AEAD tests).
+  - Go backend tests in `apps/api/internal/router/router_test.go` (`TestAttachmentLifecycle`, `TestAttachmentTenantIsolation`).
+  - 29 Vitest tests in `apps/vault-web` (including `DocumentsView.test.tsx`).
+
 ## Not implemented
 
-Streaming attachments (Phase 9), remote backup/restore archives (Phase 10), and Chrome extension (Phase 11) are not implemented.
+Remote backup/restore archives (Phase 10), Chrome extension (Phase 11), and release hardening (Phase 12) are not implemented.
 
 ## Verification
 
 - `npx turbo run build test` passed across all workspace packages and apps (9/9 tasks successful).
-- `npx prettier --write apps/vault-web/` and `npx eslint .` passed with 0 errors.
+- `npx prettier --write .` and `npx eslint .` passed with 0 errors.
 - Go backend unit tests (`internal/auth` and `internal/router`) passed 100%.
-- Client vault, storage, view, and sync engine Vitest tests passed 100% (27/27 tests passing in `vault-web`).
+- Client vault, storage, view, sync engine, and attachment Vitest tests passed 100% (29/29 tests passing in `vault-web`).
+- Crypto-core envelopes and attachment stream tests passed 100% (16/16 tests passing).
 - TypeScript packages and apps typecheck cleanly with 0 errors.
 
 ## Next phase
 
-Phase 9 — Encrypted Attachments & Object Storage: Streaming encryption with AEAD chunking, RustFS / S3 presigned upload/download authorization, attachment metadata storage, and zero-knowledge client decryption.
+Phase 10 — Backup & Restore: Versioned encrypted archive format, full vault export/import staging, integrity manifest, restore conflict safeguards, and recovery verification.

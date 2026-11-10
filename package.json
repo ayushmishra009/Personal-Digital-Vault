@@ -25,11 +25,15 @@
     "dev:api": "dotenv -e .env -- pnpm --filter @pdv/api dev"
   },
   "devDependencies": {
-    "dotenv-cli": "^11.0.0",
     "@redocly/cli": "^2.73.0",
+    "@types/libsodium-wrappers": "^0.8.2",
+    "dotenv-cli": "^11.0.0",
     "eslint": "^10.14.0",
     "prettier": "^3.6.2",
     "turbo": "^2.5.6",
     "typescript-eslint": "^8.0.0"
+  },
+  "dependencies": {
+    "libsodium-wrappers": "^0.8.4"
   }
 }

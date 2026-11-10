@@ -88,4 +88,13 @@ type Repository interface {
 	ListSyncEvents(ctx context.Context, accountID string, vaultID string, afterSequence int64, limit int) ([]domain.SyncEvent, string, bool, error)
 	GetEncryptedObjectRevision(ctx context.Context, accountID string, vaultID string, objectID string, revision *int64) (*domain.EncryptedObjectRevision, error)
 	PutEncryptedObject(ctx context.Context, accountID string, deviceID string, vaultID string, objectID string, ifMatchRevision int64, envelope *domain.EncryptedObjectRevision) (*domain.SyncOperationResult, error)
+
+	// Attachments & Object Storage
+	CreateAttachmentUploadSession(ctx context.Context, accountID string, vaultID string, input *domain.AttachmentUploadSessionInput) (*domain.AttachmentUploadSessionResult, error)
+	CompleteAttachment(ctx context.Context, accountID string, vaultID string, attachmentID string, input *domain.AttachmentCompleteInput) (*domain.Attachment, error)
+	GetAttachment(ctx context.Context, accountID string, vaultID string, attachmentID string) (*domain.Attachment, error)
+	ListAttachments(ctx context.Context, accountID string, vaultID string) ([]domain.Attachment, error)
+	DeleteAttachment(ctx context.Context, accountID string, vaultID string, attachmentID string) error
+	SaveAttachmentBlob(ctx context.Context, accountID string, vaultID string, attachmentID string, data []byte) error
+	GetAttachmentBlob(ctx context.Context, accountID string, vaultID string, attachmentID string) ([]byte, error)
 }

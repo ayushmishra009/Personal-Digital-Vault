@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -33,30 +35,39 @@ type MockRepository struct {
 	syncEvents     map[string][]domain.SyncEvent       // vaultID -> []events
 	syncOps        map[string]*domain.SyncOperationResult // vaultID:operationID -> result
 	vaultSeq       map[string]int64                    // vaultID -> monotonic sequence
+	attachments    map[string]*domain.Attachment       // attachmentID -> attachment
+	attachmentBlobs map[string][]byte                  // attachmentID -> ciphertext bytes
 	seq            int
 }
 
 func NewMockRepository() *MockRepository {
 	return &MockRepository{
-		accounts:       make(map[string]*domain.Account),
-		byEmail:        make(map[string]string),
-		credentials:    make(map[string]*domain.AuthCredential),
-		devices:        make(map[string]*domain.Device),
-		enrollments:    make(map[string]*domain.DeviceEnrollment),
-		sessions:       make(map[string]*domain.Session),
-		vaults:         make(map[string]*domain.Vault),
-		vaultEnvelopes: make(map[string]*domain.VaultKeyEnvelope),
-		cmsModules:     make(map[string]*domain.CmsModule),
-		cmsSections:    make(map[string]*domain.CmsSection),
-		cmsNav:         make(map[string]*domain.CmsNavigationItem),
-		cmsThemes:      make(map[string]*domain.CmsThemeSettings),
-		cmsRevisions:   make(map[string][]*domain.CmsRevision),
-		objects:        make(map[string]*domain.EncryptedObjectRevision),
-		revisions:      make(map[string]*domain.EncryptedObjectRevision),
-		syncEvents:     make(map[string][]domain.SyncEvent),
-		syncOps:        make(map[string]*domain.SyncOperationResult),
-		vaultSeq:       make(map[string]int64),
+		accounts:        make(map[string]*domain.Account),
+		byEmail:         make(map[string]string),
+		credentials:     make(map[string]*domain.AuthCredential),
+		devices:         make(map[string]*domain.Device),
+		enrollments:     make(map[string]*domain.DeviceEnrollment),
+		sessions:        make(map[string]*domain.Session),
+		vaults:          make(map[string]*domain.Vault),
+		vaultEnvelopes:  make(map[string]*domain.VaultKeyEnvelope),
+		cmsModules:      make(map[string]*domain.CmsModule),
+		cmsSections:     make(map[string]*domain.CmsSection),
+		cmsNav:          make(map[string]*domain.CmsNavigationItem),
+		cmsThemes:       make(map[string]*domain.CmsThemeSettings),
+		cmsRevisions:    make(map[string][]*domain.CmsRevision),
+		objects:         make(map[string]*domain.EncryptedObjectRevision),
+		revisions:       make(map[string]*domain.EncryptedObjectRevision),
+		syncEvents:      make(map[string][]domain.SyncEvent),
+		syncOps:         make(map[string]*domain.SyncOperationResult),
+		vaultSeq:        make(map[string]int64),
+		attachments:     make(map[string]*domain.Attachment),
+		attachmentBlobs: make(map[string][]byte),
 	}
+}
+
+func (m *MockRepository) nextUUID() string {
+	m.seq++
+	return fmt.Sprintf("a0000000-0000-4000-8000-%012d", m.seq)
 }
 
 func (m *MockRepository) nextID(prefix string) string {
@@ -1203,5 +1214,206 @@ func (m *MockRepository) PutEncryptedObject(
 		CiphertextHash:   envelope.CiphertextHash,
 	}
 	return m.SubmitSyncOperation(ctx, accountID, deviceID, vaultID, op)
+}
+
+func (m *MockRepository) CreateAttachmentUploadSession(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	input *domain.AttachmentUploadSessionInput,
+) (*domain.AttachmentUploadSessionResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	v, exists := m.vaults[accountID+":"+vaultID]
+	if !exists || v.Status != "active" {
+		return nil, ErrNotFound
+	}
+
+	const maxSizeBytes = 104857600
+	if input.CiphertextSize <= 0 || input.CiphertextSize > maxSizeBytes {
+		return nil, errors.New("invalid ciphertext size")
+	}
+	if len(input.CiphertextHash) != 32 {
+		return nil, errors.New("invalid ciphertext hash length: must be 32 bytes")
+	}
+
+	attID := m.nextUUID()
+	objectKey := fmt.Sprintf("vaults/%s/attachments/%s", vaultID, attID)
+	now := time.Now().UTC()
+	expiresAt := now.Add(1 * time.Hour)
+
+	att := &domain.Attachment{
+		ID:             attID,
+		AccountID:      accountID,
+		VaultID:        vaultID,
+		ObjectKey:      objectKey,
+		CiphertextSize: input.CiphertextSize,
+		CiphertextHash: input.CiphertextHash,
+		CreatedAt:      now,
+	}
+	m.attachments[attID] = att
+
+	uploadURL := fmt.Sprintf("/api/v1/vaults/%s/attachments/%s/content", vaultID, attID)
+	return &domain.AttachmentUploadSessionResult{
+		AttachmentID:      attID,
+		UploadURL:         uploadURL,
+		ObjectKey:         objectKey,
+		ExpiresAt:         expiresAt,
+		MaxCiphertextSize: maxSizeBytes,
+	}, nil
+}
+
+func (m *MockRepository) CompleteAttachment(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	attachmentID string,
+	input *domain.AttachmentCompleteInput,
+) (*domain.Attachment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	v, exists := m.vaults[accountID+":"+vaultID]
+	if !exists || v.Status != "active" {
+		return nil, ErrNotFound
+	}
+
+	att, exists := m.attachments[attachmentID]
+	if !exists || att.AccountID != accountID || att.VaultID != vaultID || att.DeletedAt != nil {
+		return nil, ErrNotFound
+	}
+
+	if input.CiphertextSize <= 0 {
+		return nil, errors.New("invalid ciphertext size")
+	}
+	if len(input.CiphertextHash) != 32 {
+		return nil, errors.New("invalid ciphertext hash length")
+	}
+
+	att.CiphertextSize = input.CiphertextSize
+	att.CiphertextHash = input.CiphertextHash
+	return att, nil
+}
+
+func (m *MockRepository) GetAttachment(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	attachmentID string,
+) (*domain.Attachment, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	v, exists := m.vaults[accountID+":"+vaultID]
+	if !exists || v.Status != "active" {
+		return nil, ErrNotFound
+	}
+
+	att, exists := m.attachments[attachmentID]
+	if !exists || att.AccountID != accountID || att.VaultID != vaultID || att.DeletedAt != nil {
+		return nil, ErrNotFound
+	}
+	return att, nil
+}
+
+func (m *MockRepository) ListAttachments(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+) ([]domain.Attachment, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	v, exists := m.vaults[accountID+":"+vaultID]
+	if !exists || v.Status != "active" {
+		return nil, ErrNotFound
+	}
+
+	var results []domain.Attachment
+	for _, att := range m.attachments {
+		if att.AccountID == accountID && att.VaultID == vaultID && att.DeletedAt == nil {
+			results = append(results, *att)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].CreatedAt.After(results[j].CreatedAt)
+	})
+	return results, nil
+}
+
+func (m *MockRepository) DeleteAttachment(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	attachmentID string,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	v, exists := m.vaults[accountID+":"+vaultID]
+	if !exists || v.Status != "active" {
+		return ErrNotFound
+	}
+
+	att, exists := m.attachments[attachmentID]
+	if !exists || att.AccountID != accountID || att.VaultID != vaultID || att.DeletedAt != nil {
+		return ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	att.DeletedAt = &now
+	delete(m.attachmentBlobs, attachmentID)
+	return nil
+}
+
+func (m *MockRepository) SaveAttachmentBlob(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	attachmentID string,
+	data []byte,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	v, exists := m.vaults[accountID+":"+vaultID]
+	if !exists || v.Status != "active" {
+		return ErrNotFound
+	}
+
+	att, exists := m.attachments[attachmentID]
+	if !exists || att.AccountID != accountID || att.VaultID != vaultID || att.DeletedAt != nil {
+		return ErrNotFound
+	}
+
+	m.attachmentBlobs[attachmentID] = data
+	return nil
+}
+
+func (m *MockRepository) GetAttachmentBlob(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	attachmentID string,
+) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	v, exists := m.vaults[accountID+":"+vaultID]
+	if !exists || v.Status != "active" {
+		return nil, ErrNotFound
+	}
+
+	att, exists := m.attachments[attachmentID]
+	if !exists || att.AccountID != accountID || att.VaultID != vaultID || att.DeletedAt != nil {
+		return nil, ErrNotFound
+	}
+
+	blob, exists := m.attachmentBlobs[attachmentID]
+	if !exists {
+		return nil, ErrNotFound
+	}
+	return blob, nil
 }
 

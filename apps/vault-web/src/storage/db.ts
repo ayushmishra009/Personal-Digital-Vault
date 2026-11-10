@@ -5,7 +5,7 @@ import type {
 } from "@pdv/data-models";
 
 export const DB_NAME = "pdv_local_store";
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export interface StoredEncryptedRecord {
   vaultId: string;
@@ -13,6 +13,15 @@ export interface StoredEncryptedRecord {
   revision: number;
   payloadVersion: number;
   envelope: EncryptedObjectEnvelope;
+  updatedAt: string;
+}
+
+export interface StoredEncryptedAttachment {
+  vaultId: string;
+  attachmentId: string;
+  ciphertext: Uint8Array;
+  ciphertextSize: number;
+  ciphertextDigest: string;
   updatedAt: string;
 }
 
@@ -42,6 +51,13 @@ export interface LocalDatabase {
 
   putSyncState(state: LocalSyncState): Promise<void>;
   getSyncState(vaultId: string): Promise<LocalSyncState | null>;
+
+  putAttachment(att: StoredEncryptedAttachment): Promise<void>;
+  getAttachment(
+    vaultId: string,
+    attachmentId: string,
+  ): Promise<StoredEncryptedAttachment | null>;
+  deleteAttachment(vaultId: string, attachmentId: string): Promise<void>;
 
   clear(): Promise<void>;
 }
@@ -86,6 +102,17 @@ class IndexedDBDatabase implements LocalDatabase {
           // sync_state store
           if (!db.objectStoreNames.contains("sync_state")) {
             db.createObjectStore("sync_state", { keyPath: "vaultId" });
+          }
+
+          // encrypted_attachments store
+          if (!db.objectStoreNames.contains("encrypted_attachments")) {
+            const store = db.createObjectStore("encrypted_attachments", {
+              keyPath: ["vaultId", "attachmentId"],
+            });
+            store.createIndex("vaultId", "vaultId", { unique: false });
+            store.createIndex("attachmentId", "attachmentId", {
+              unique: false,
+            });
           }
         };
 
@@ -239,6 +266,41 @@ class IndexedDBDatabase implements LocalDatabase {
     });
   }
 
+  async putAttachment(att: StoredEncryptedAttachment): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("encrypted_attachments", "readwrite");
+      tx.objectStore("encrypted_attachments").put(att);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async getAttachment(
+    vaultId: string,
+    attachmentId: string,
+  ): Promise<StoredEncryptedAttachment | null> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("encrypted_attachments", "readonly");
+      const req = tx
+        .objectStore("encrypted_attachments")
+        .get([vaultId, attachmentId]);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async deleteAttachment(vaultId: string, attachmentId: string): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("encrypted_attachments", "readwrite");
+      tx.objectStore("encrypted_attachments").delete([vaultId, attachmentId]);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
   async clear(): Promise<void> {
     const db = await this.getDB();
     const storeNames = Array.from(db.objectStoreNames);
@@ -259,9 +321,14 @@ export class MemoryDatabase implements LocalDatabase {
   private pendingOps = new Map<string, SyncOperation>();
   private vaults = new Map<string, VaultMetadata>();
   private syncStates = new Map<string, LocalSyncState>();
+  private attachments = new Map<string, StoredEncryptedAttachment>();
 
   private recordKey(vaultId: string, objectId: string): string {
     return `${vaultId}:${objectId}`;
+  }
+
+  private attachmentKey(vaultId: string, attachmentId: string): string {
+    return `${vaultId}:${attachmentId}`;
   }
 
   async putRecord(record: StoredEncryptedRecord): Promise<void> {
@@ -330,11 +397,32 @@ export class MemoryDatabase implements LocalDatabase {
     return this.syncStates.get(vaultId) ?? null;
   }
 
+  async putAttachment(att: StoredEncryptedAttachment): Promise<void> {
+    this.attachments.set(
+      this.attachmentKey(att.vaultId, att.attachmentId),
+      att,
+    );
+  }
+
+  async getAttachment(
+    vaultId: string,
+    attachmentId: string,
+  ): Promise<StoredEncryptedAttachment | null> {
+    return (
+      this.attachments.get(this.attachmentKey(vaultId, attachmentId)) ?? null
+    );
+  }
+
+  async deleteAttachment(vaultId: string, attachmentId: string): Promise<void> {
+    this.attachments.delete(this.attachmentKey(vaultId, attachmentId));
+  }
+
   async clear(): Promise<void> {
     this.records.clear();
     this.pendingOps.clear();
     this.vaults.clear();
     this.syncStates.clear();
+    this.attachments.clear();
   }
 }
 

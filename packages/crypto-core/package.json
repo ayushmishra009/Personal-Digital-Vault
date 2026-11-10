@@ -10,10 +10,14 @@
   "scripts": {
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "test": "node test/envelopes.test.mjs",
+    "test": "node test/envelopes.test.mjs && node test/attachments.test.mjs",
     "test:browser": "node test/run-chrome-provider.mjs"
   },
+  "dependencies": {
+    "libsodium-wrappers": "0.8.4"
+  },
   "devDependencies": {
+    "@types/libsodium-wrappers": "^0.8.2",
     "typescript": "^5.9.0"
   }
 }

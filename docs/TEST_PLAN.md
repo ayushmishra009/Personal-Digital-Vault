@@ -177,6 +177,29 @@ All Phase 6 verification targets pass in `apps/api/internal/router` (`TestCmsEnd
   - Invokes resolution callbacks (`onKeepLocal`, `onKeepServer`, `onMerge`) on user action.
 - All Phase 8 verification targets pass in `apps/api/internal/router` (`TestSyncEngineAndConflictResolution`, `TestSyncTenantIsolation`) and `apps/vault-web` (`sync-engine.test.ts`, `ConflictResolutionModal.test.tsx`). Total 27 Vitest tests passing in `vault-web`.
 
+## Phase 9 encrypted attachments & object storage verification targets
+
+- Verify streaming AEAD protocol (`packages/crypto-core/test/attachments.test.mjs`):
+  - Roundtrip encryption & decryption for empty payloads (55-byte wire format with single `TAG_FINAL` frame).
+  - Roundtrip encryption & decryption for small payloads (< 1 MiB).
+  - Roundtrip encryption & decryption for multi-chunk payloads (> 1 MiB) with sequential frame authentication.
+  - Context binding rejection: mismatched `vaultId`, `objectId`, or `revision` fails authentication closed.
+  - Frame tampering rejection: bit-flipping ciphertext bytes throws authentication failure.
+  - Truncation rejection: missing `TAG_FINAL` frame fails closed.
+  - Attachment key wrapping roundtrip: VEK wraps and unwraps 32-byte secretstream key using AES-256-KW and context HKDF.
+- Verify Go backend attachment handlers (`apps/api/internal/router/router_test.go`):
+  - Upload session creation (`POST /api/v1/vaults/{vaultId}/attachments/upload-session`): validates 100 MB max size and 32-byte SHA-256 hash.
+  - Ciphertext upload (`PUT .../content`): persists encrypted blob and verifies hash.
+  - Upload completion (`POST .../complete`): updates attachment metadata record in `attachments` table.
+  - Attachment listing (`GET /api/v1/vaults/{vaultId}/attachments`): returns active attachments ordered by creation date.
+  - Download session (`GET .../download-session`): returns download URL, expiration, and ciphertext digest.
+  - Content download (`GET .../content`): delivers raw encrypted stream matching original upload.
+  - Attachment deletion (`DELETE .../{attachmentId}`): soft deletes metadata and removes blob; subsequent retrieval returns 404.
+  - Cross-tenant boundary isolation: Account B cannot access, upload, or delete attachments in Account A's vault (returns 404).
+- Verify client UI & local storage (`apps/vault-web`):
+  - `DocumentsView.test.tsx`: validates empty state rendering, streaming AEAD banner, and upload button state.
+  - Total 29 Vitest tests passing in `apps/vault-web`.
+
 ## Later security and product coverage
 
 Follow the master specification's crypto known-answer and negative tests, backend authorization/tenant isolation tests, offline/conflict tests, CMS schema/revision tests, attachment ciphertext checks, extension origin-boundary tests, and end-to-end flows. Round-trip crypto tests alone are insufficient. Do not use production data in tests.

@@ -20,6 +20,8 @@ tags:
     description: Opaque vault metadata and key envelopes
   - name: Sync
     description: Encrypted object revision synchronization
+  - name: Attachments
+    description: Encrypted attachment metadata and upload/download sessions
   - name: CMS
     description: Dynamic product configuration and administration
 security: []
@@ -535,6 +537,192 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
+  /api/v1/vaults/{vaultId}/attachments:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+    get:
+      tags: [Attachments]
+      operationId: listAttachments
+      summary: List opaque attachment metadata for a vault
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: List of attachments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vaultId}/attachments/upload-session:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+    post:
+      tags: [Attachments]
+      operationId: createAttachmentUploadSession
+      summary: Request an authorized upload session for an encrypted attachment
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachmentUploadSessionRequest"
+      responses:
+        "201":
+          description: Upload session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentUploadSessionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/vaults/{vaultId}/attachments/{attachmentId}/complete:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+      - $ref: "#/components/parameters/AttachmentId"
+    post:
+      tags: [Attachments]
+      operationId: completeAttachmentUpload
+      summary: Finalize an attachment upload session after ciphertext transfer
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachmentCompleteRequest"
+      responses:
+        "200":
+          description: Attachment finalized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentMetadata"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/vaults/{vaultId}/attachments/{attachmentId}/download-session:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+      - $ref: "#/components/parameters/AttachmentId"
+    get:
+      tags: [Attachments]
+      operationId: createAttachmentDownloadSession
+      summary: Request an authorized download session for an encrypted attachment
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Download session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentDownloadSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vaultId}/attachments/{attachmentId}:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+      - $ref: "#/components/parameters/AttachmentId"
+    get:
+      tags: [Attachments]
+      operationId: getAttachment
+      summary: Get attachment metadata
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Attachment metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentMetadata"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Attachments]
+      operationId: deleteAttachment
+      summary: Soft delete an attachment
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Attachment deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/vaults/{vaultId}/attachments/{attachmentId}/content:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+      - $ref: "#/components/parameters/AttachmentId"
+    put:
+      tags: [Attachments]
+      operationId: uploadAttachmentContent
+      summary: Upload raw encrypted attachment ciphertext directly (fallback or development storage endpoint)
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "204":
+          description: Ciphertext stored successfully
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    get:
+      tags: [Attachments]
+      operationId: downloadAttachmentContent
+      summary: Download raw encrypted attachment ciphertext directly (fallback or development storage endpoint)
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Encrypted ciphertext stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/app/configuration:
     get:
       tags: [CMS]
@@ -886,7 +1074,20 @@ components:
       schema:
         type: string
         format: uuid
+    AttachmentId:
+      name: attachmentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   responses:
+    BadRequest:
+      description: Bad request syntax or malformed payload
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
     Unauthorized:
       description: Authentication required
       content:
@@ -1683,3 +1884,91 @@ components:
         revisionNumber:
           type: integer
           minimum: 1
+
+    AttachmentMetadata:
+      type: object
+      additionalProperties: false
+      required: [id, vaultId, ciphertextSize, ciphertextDigest, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        vaultId:
+          type: string
+          format: uuid
+        ciphertextSize:
+          type: integer
+          minimum: 1
+        ciphertextDigest:
+          $ref: "#/components/schemas/Base64Url"
+        createdAt:
+          type: string
+          format: date-time
+
+    AttachmentList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttachmentMetadata"
+
+    AttachmentUploadSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [ciphertextSize, ciphertextDigest]
+      properties:
+        ciphertextSize:
+          type: integer
+          minimum: 1
+          maximum: 104857600
+        ciphertextDigest:
+          $ref: "#/components/schemas/Base64Url"
+
+    AttachmentUploadSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [attachmentId, uploadUrl, objectKey, expiresAt, maxCiphertextSize]
+      properties:
+        attachmentId:
+          type: string
+          format: uuid
+        uploadUrl:
+          type: string
+        objectKey:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        maxCiphertextSize:
+          type: integer
+          minimum: 1
+
+    AttachmentCompleteRequest:
+      type: object
+      additionalProperties: false
+      required: [ciphertextSize, ciphertextDigest]
+      properties:
+        ciphertextSize:
+          type: integer
+          minimum: 1
+        ciphertextDigest:
+          $ref: "#/components/schemas/Base64Url"
+
+    AttachmentDownloadSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [downloadUrl, ciphertextSize, ciphertextDigest, expiresAt]
+      properties:
+        downloadUrl:
+          type: string
+        ciphertextSize:
+          type: integer
+          minimum: 1
+        ciphertextDigest:
+          $ref: "#/components/schemas/Base64Url"
+        expiresAt:
+          type: string
+          format: date-time

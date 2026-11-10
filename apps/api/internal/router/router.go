@@ -70,6 +70,16 @@ func BuildRouter(cfg Config) http.Handler {
 	mux.Handle("GET /api/v1/vaults/{vaultId}/objects/{objectId}", requireActiveSession(handlers.GetEncryptedObjectHandler(cfg.Repo)))
 	mux.Handle("PUT /api/v1/vaults/{vaultId}/objects/{objectId}", requireActiveSession(handlers.PutEncryptedObjectHandler(cfg.Repo)))
 
+	// Attachment routes (strictly require an active device)
+	mux.Handle("GET /api/v1/vaults/{vaultId}/attachments", requireActiveSession(handlers.ListAttachmentsHandler(cfg.Repo)))
+	mux.Handle("POST /api/v1/vaults/{vaultId}/attachments/upload-session", requireActiveSession(handlers.CreateAttachmentUploadSessionHandler(cfg.Repo)))
+	mux.Handle("POST /api/v1/vaults/{vaultId}/attachments/{attachmentId}/complete", requireActiveSession(handlers.CompleteAttachmentUploadHandler(cfg.Repo)))
+	mux.Handle("GET /api/v1/vaults/{vaultId}/attachments/{attachmentId}/download-session", requireActiveSession(handlers.CreateAttachmentDownloadSessionHandler(cfg.Repo)))
+	mux.Handle("GET /api/v1/vaults/{vaultId}/attachments/{attachmentId}", requireActiveSession(handlers.GetAttachmentHandler(cfg.Repo)))
+	mux.Handle("DELETE /api/v1/vaults/{vaultId}/attachments/{attachmentId}", requireActiveSession(handlers.DeleteAttachmentHandler(cfg.Repo)))
+	mux.Handle("PUT /api/v1/vaults/{vaultId}/attachments/{attachmentId}/content", requireActiveSession(handlers.UploadAttachmentContentHandler(cfg.Repo)))
+	mux.Handle("GET /api/v1/vaults/{vaultId}/attachments/{attachmentId}/content", requireActiveSession(handlers.DownloadAttachmentContentHandler(cfg.Repo)))
+
 	// CMS & Dynamic App Configuration routes (strictly require an active device)
 	cmsH := &handlers.CmsHandler{Repo: cfg.Repo}
 	mux.Handle("GET /api/v1/app/configuration", requireActiveSession(http.HandlerFunc(cmsH.GetAppConfiguration)))

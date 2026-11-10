@@ -6,6 +6,8 @@
  * required maintained browser-WASM implementation is selected and reviewed.
  */
 
+import _sodium from "libsodium-wrappers";
+
 const PROTOCOL_VERSION = 1;
 const AES_GCM_NONCE_BYTES = 12;
 const AES_GCM_TAG_BITS = 128;
@@ -790,4 +792,303 @@ function decodeBase64Url(value: string): Uint8Array {
   if (encodeBase64Url(decoded) !== value)
     throw new Error("Noncanonical base64url");
   return decoded;
+}
+
+export const STREAM_MAGIC = new Uint8Array([
+  0x50, 0x44, 0x56, 0x53, 0x54, 0x52, 0x4d, 0x00,
+]); // "PDVSTRM\0"
+export const STREAM_PROTOCOL_VERSION = 1;
+const STREAM_HEADER_BYTES = 24;
+const STREAM_TAG_BYTES = 17;
+const MAX_PLAINTEXT_CHUNK_BYTES = 1024 * 1024; // 1 MiB
+const MIN_FRAME_CIPHERTEXT_BYTES = 17;
+const MAX_FRAME_CIPHERTEXT_BYTES = MAX_PLAINTEXT_CHUNK_BYTES + STREAM_TAG_BYTES; // 1,048,593
+const STREAM_FRAME_AD_PREFIX = UTF8.encode("PDV/1/attachment-chunk\u0000");
+
+function encodeStreamFrameAD(
+  contextBytes: Uint8Array,
+  chunkIndex: bigint,
+): Uint8Array {
+  const ad = new Uint8Array(
+    STREAM_FRAME_AD_PREFIX.length + contextBytes.length + 8,
+  );
+  ad.set(STREAM_FRAME_AD_PREFIX, 0);
+  ad.set(contextBytes, STREAM_FRAME_AD_PREFIX.length);
+  const view = new DataView(
+    ad.buffer,
+    ad.byteOffset + STREAM_FRAME_AD_PREFIX.length + contextBytes.length,
+    8,
+  );
+  view.setBigUint64(0, chunkIndex, false);
+  return ad;
+}
+
+export async function generateAttachmentKey(): Promise<Uint8Array> {
+  await _sodium.ready;
+  return Uint8Array.from(
+    _sodium.crypto_secretstream_xchacha20poly1305_keygen(),
+  );
+}
+
+export async function wrapAttachmentKey(
+  vek: CryptoKey,
+  context: ObjectContext,
+  streamKey: Uint8Array,
+  cryptoProvider: Crypto = globalThis.crypto,
+): Promise<string> {
+  if (context.purpose !== "attachment") {
+    throw new Error('Attachment key context purpose must be "attachment"');
+  }
+  assertLength(streamKey, AES_KEY_BYTES, "stream key");
+  const wrappingKey = await deriveObjectWrappingKey(
+    vek,
+    context,
+    cryptoProvider,
+  );
+  const keyToWrap = await cryptoProvider.subtle.importKey(
+    "raw",
+    copyBuffer(streamKey),
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"],
+  );
+  const wrapped = await cryptoProvider.subtle.wrapKey(
+    "raw",
+    keyToWrap,
+    wrappingKey,
+    "AES-KW",
+  );
+  return encodeBase64Url(new Uint8Array(wrapped));
+}
+
+export async function unwrapAttachmentKey(
+  vek: CryptoKey,
+  context: ObjectContext,
+  wrappedKey: string,
+  cryptoProvider: Crypto = globalThis.crypto,
+): Promise<Uint8Array> {
+  if (context.purpose !== "attachment") {
+    throw new Error('Attachment key context purpose must be "attachment"');
+  }
+  const wrappedBytes = decodeBase64Url(wrappedKey);
+  assertLength(
+    wrappedBytes,
+    AES_KW_WRAPPED_KEY_BYTES,
+    "wrapped attachment key",
+  );
+  const wrappingKey = await deriveObjectWrappingKey(
+    vek,
+    context,
+    cryptoProvider,
+  );
+  const unwrapped = await cryptoProvider.subtle.unwrapKey(
+    "raw",
+    copyBuffer(wrappedBytes),
+    wrappingKey,
+    "AES-KW",
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"],
+  );
+  const rawKey = await cryptoProvider.subtle.exportKey("raw", unwrapped);
+  return new Uint8Array(rawKey);
+}
+
+export async function sealAttachmentStream(
+  streamKey: Uint8Array,
+  context: ObjectContext,
+  plaintext: Uint8Array,
+): Promise<Uint8Array> {
+  if (context.purpose !== "attachment") {
+    throw new Error('Attachment context purpose must be "attachment"');
+  }
+  assertLength(streamKey, 32, "attachment stream key");
+  await _sodium.ready;
+  const sodium = _sodium;
+  const contextBytes = encodeContext(context);
+
+  const init =
+    sodium.crypto_secretstream_xchacha20poly1305_init_push(streamKey);
+  const state = init.state;
+  const header = init.header;
+
+  const chunks: Uint8Array[] = [];
+  if (plaintext.length === 0) {
+    chunks.push(new Uint8Array(0));
+  } else {
+    for (
+      let offset = 0;
+      offset < plaintext.length;
+      offset += MAX_PLAINTEXT_CHUNK_BYTES
+    ) {
+      chunks.push(
+        plaintext.subarray(
+          offset,
+          Math.min(plaintext.length, offset + MAX_PLAINTEXT_CHUNK_BYTES),
+        ),
+      );
+    }
+  }
+
+  const frames: Uint8Array[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const isFinal = i === chunks.length - 1;
+    const tag = isFinal
+      ? sodium.crypto_secretstream_xchacha20poly1305_TAG_FINAL
+      : sodium.crypto_secretstream_xchacha20poly1305_TAG_MESSAGE;
+    const ad = encodeStreamFrameAD(contextBytes, BigInt(i));
+    const frameCiphertext = sodium.crypto_secretstream_xchacha20poly1305_push(
+      state,
+      chunks[i],
+      ad,
+      tag,
+    );
+    frames.push(frameCiphertext);
+  }
+
+  let totalLength = STREAM_MAGIC.length + 2 + header.length;
+  for (const f of frames) {
+    totalLength += 4 + f.length;
+  }
+
+  const result = new Uint8Array(totalLength);
+  let pos = 0;
+  result.set(STREAM_MAGIC, pos);
+  pos += STREAM_MAGIC.length;
+
+  const versionView = new DataView(result.buffer, result.byteOffset + pos, 2);
+  versionView.setUint16(0, STREAM_PROTOCOL_VERSION, false);
+  pos += 2;
+
+  result.set(header, pos);
+  pos += header.length;
+
+  for (const f of frames) {
+    const lenView = new DataView(result.buffer, result.byteOffset + pos, 4);
+    lenView.setUint32(0, f.length, false);
+    pos += 4;
+    result.set(f, pos);
+    pos += f.length;
+  }
+
+  return result;
+}
+
+export async function openAttachmentStream(
+  streamKey: Uint8Array,
+  context: ObjectContext,
+  streamBytes: Uint8Array,
+): Promise<Uint8Array> {
+  if (context.purpose !== "attachment") {
+    throw new Error('Attachment context purpose must be "attachment"');
+  }
+  assertLength(streamKey, 32, "attachment stream key");
+  await _sodium.ready;
+  const sodium = _sodium;
+  const contextBytes = encodeContext(context);
+
+  const minHeaderLen = STREAM_MAGIC.length + 2 + STREAM_HEADER_BYTES;
+  if (streamBytes.length < minHeaderLen + 4 + MIN_FRAME_CIPHERTEXT_BYTES) {
+    throw new Error("Attachment stream truncated: incomplete header or frame");
+  }
+
+  for (let i = 0; i < STREAM_MAGIC.length; i++) {
+    if (streamBytes[i] !== STREAM_MAGIC[i]) {
+      throw new Error("Invalid attachment stream magic header");
+    }
+  }
+
+  const versionView = new DataView(
+    streamBytes.buffer,
+    streamBytes.byteOffset + STREAM_MAGIC.length,
+    2,
+  );
+  const version = versionView.getUint16(0, false);
+  if (version !== STREAM_PROTOCOL_VERSION) {
+    throw new Error(`Unsupported attachment stream version: ${version}`);
+  }
+
+  const headerOffset = STREAM_MAGIC.length + 2;
+  const header = streamBytes.subarray(
+    headerOffset,
+    headerOffset + STREAM_HEADER_BYTES,
+  );
+
+  const pullState = sodium.crypto_secretstream_xchacha20poly1305_init_pull(
+    header,
+    streamKey,
+  );
+
+  let pos = headerOffset + STREAM_HEADER_BYTES;
+  let chunkIndex = 0n;
+  let hadFinal = false;
+  const decryptedChunks: Uint8Array[] = [];
+
+  while (pos < streamBytes.length) {
+    if (hadFinal) {
+      throw new Error("Extraneous frames found after stream final tag");
+    }
+    if (pos + 4 > streamBytes.length) {
+      throw new Error("Attachment stream truncated: incomplete frame length");
+    }
+    const lenView = new DataView(
+      streamBytes.buffer,
+      streamBytes.byteOffset + pos,
+      4,
+    );
+    const frameLen = lenView.getUint32(0, false);
+    pos += 4;
+
+    if (
+      frameLen < MIN_FRAME_CIPHERTEXT_BYTES ||
+      frameLen > MAX_FRAME_CIPHERTEXT_BYTES
+    ) {
+      throw new Error(`Frame length out of allowed bounds: ${frameLen}`);
+    }
+    if (pos + frameLen > streamBytes.length) {
+      throw new Error("Attachment stream truncated: frame data truncated");
+    }
+
+    const frameBytes = streamBytes.subarray(pos, pos + frameLen);
+    pos += frameLen;
+
+    const ad = encodeStreamFrameAD(contextBytes, chunkIndex);
+    const pullResult = sodium.crypto_secretstream_xchacha20poly1305_pull(
+      pullState,
+      frameBytes,
+      ad,
+    );
+    if (!pullResult || typeof pullResult !== "object") {
+      throw new Error("Attachment frame authentication failed");
+    }
+
+    const { message, tag } = pullResult;
+    decryptedChunks.push(message);
+
+    if (tag === sodium.crypto_secretstream_xchacha20poly1305_TAG_FINAL) {
+      hadFinal = true;
+    }
+
+    chunkIndex++;
+  }
+
+  if (!hadFinal) {
+    throw new Error(
+      "Attachment stream missing required final tag (stream was truncated)",
+    );
+  }
+
+  if (pos !== streamBytes.length) {
+    throw new Error("Trailing bytes detected after stream termination");
+  }
+
+  let totalBytes = 0;
+  for (const c of decryptedChunks) totalBytes += c.length;
+  const result = new Uint8Array(totalBytes);
+  let writePos = 0;
+  for (const c of decryptedChunks) {
+    result.set(c, writePos);
+    writePos += c.length;
+  }
+  return result;
 }

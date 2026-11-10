@@ -2,9 +2,25 @@ import type {
   AppConfiguration,
   SyncOperation,
   EncryptedObjectEnvelope,
+  AttachmentMetadata,
+  AttachmentList,
+  AttachmentUploadSessionRequest,
+  AttachmentUploadSessionResponse,
+  AttachmentCompleteRequest,
+  AttachmentDownloadSessionResponse,
 } from "@pdv/data-models";
 
-export type { AppConfiguration, SyncOperation, EncryptedObjectEnvelope };
+export type {
+  AppConfiguration,
+  SyncOperation,
+  EncryptedObjectEnvelope,
+  AttachmentMetadata,
+  AttachmentList,
+  AttachmentUploadSessionRequest,
+  AttachmentUploadSessionResponse,
+  AttachmentCompleteRequest,
+  AttachmentDownloadSessionResponse,
+};
 
 export interface Account {
   id: string;
@@ -404,4 +420,113 @@ export async function putEncryptedObject(
     },
   );
   return handleResponse<SyncOperationResult>(res);
+}
+
+export async function listAttachments(
+  vaultId: string,
+): Promise<AttachmentList> {
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/attachments`,
+    { credentials: "include" },
+  );
+  return handleResponse<AttachmentList>(res);
+}
+
+export async function createAttachmentUploadSession(
+  vaultId: string,
+  request: AttachmentUploadSessionRequest,
+): Promise<AttachmentUploadSessionResponse> {
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/attachments/upload-session`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(request),
+    },
+  );
+  return handleResponse<AttachmentUploadSessionResponse>(res);
+}
+
+export async function uploadAttachmentCiphertext(
+  uploadUrl: string,
+  ciphertext: Uint8Array,
+): Promise<void> {
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": "application/octet-stream" },
+    credentials: "include",
+    body: ciphertext as unknown as BodyInit,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Upload failed (${res.status}): ${text}`);
+  }
+}
+
+export async function completeAttachmentUpload(
+  vaultId: string,
+  attachmentId: string,
+  request: AttachmentCompleteRequest,
+): Promise<AttachmentMetadata> {
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/attachments/${encodeURIComponent(attachmentId)}/complete`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(request),
+    },
+  );
+  return handleResponse<AttachmentMetadata>(res);
+}
+
+export async function createAttachmentDownloadSession(
+  vaultId: string,
+  attachmentId: string,
+): Promise<AttachmentDownloadSessionResponse> {
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/attachments/${encodeURIComponent(attachmentId)}/download-session`,
+    { credentials: "include" },
+  );
+  return handleResponse<AttachmentDownloadSessionResponse>(res);
+}
+
+export async function downloadAttachmentCiphertext(
+  downloadUrl: string,
+): Promise<Uint8Array> {
+  const res = await fetch(downloadUrl, { credentials: "include" });
+  if (!res.ok) {
+    throw new Error(`Download failed (${res.status})`);
+  }
+  const buf = await res.arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+export async function getAttachment(
+  vaultId: string,
+  attachmentId: string,
+): Promise<AttachmentMetadata> {
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    { credentials: "include" },
+  );
+  return handleResponse<AttachmentMetadata>(res);
+}
+
+export async function deleteAttachment(
+  vaultId: string,
+  attachmentId: string,
+): Promise<void> {
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Delete failed (${res.status}): ${text}`);
+  }
 }

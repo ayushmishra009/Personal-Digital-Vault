@@ -359,6 +359,43 @@ export const AppConfigurationSchema = z.strictObject({
   revisionNumber: z.number().int().positive(),
 });
 
+export const AttachmentMetadataSchema = z.strictObject({
+  id: OpaqueIdSchema,
+  vaultId: OpaqueIdSchema,
+  ciphertextSize: z.number().int().positive(),
+  ciphertextDigest: Base64UrlSchema,
+  createdAt: DateTimeSchema,
+});
+
+export const AttachmentListSchema = z.strictObject({
+  items: z.array(AttachmentMetadataSchema),
+});
+
+export const AttachmentUploadSessionRequestSchema = z.strictObject({
+  ciphertextSize: z.number().int().positive().max(104857600),
+  ciphertextDigest: Base64UrlSchema,
+});
+
+export const AttachmentUploadSessionResponseSchema = z.strictObject({
+  attachmentId: OpaqueIdSchema,
+  uploadUrl: z.string().min(1),
+  objectKey: z.string().min(1),
+  expiresAt: DateTimeSchema,
+  maxCiphertextSize: z.number().int().positive(),
+});
+
+export const AttachmentCompleteRequestSchema = z.strictObject({
+  ciphertextSize: z.number().int().positive(),
+  ciphertextDigest: Base64UrlSchema,
+});
+
+export const AttachmentDownloadSessionResponseSchema = z.strictObject({
+  downloadUrl: z.string().min(1),
+  ciphertextSize: z.number().int().positive(),
+  ciphertextDigest: Base64UrlSchema,
+  expiresAt: DateTimeSchema,
+});
+
 export type VaultKeyEnvelopeInput = z.input<typeof VaultKeyEnvelopeSchema>;
 export type CreateVaultRequestInput = z.input<typeof CreateVaultRequestSchema>;
 export type EncryptedObjectEnvelopeInput = z.input<

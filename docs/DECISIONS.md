@@ -77,17 +77,19 @@ Reference: [RustFS 1.0.4 release](https://github.com/rustfs/rustfs/releases) and
 
 **Status:** Accepted for Phase 6<br>
 **Decision:** Implement a tenant-isolated CMS and administrative foundation:
+
 1. **Database Schema:** Tables `cms_modules`, `cms_sections`, `cms_navigation_items`, `cms_theme_settings`, and `cms_revisions` in migration `00003_cms_foundation.sql`, scoped strictly by `account_id` foreign keys with cascade deletion.
 2. **Backend API:** Standardized endpoints under `/api/v1/app/configuration` (public to authenticated tenant) and `/api/v1/admin/cms/...` (administrative mutations). Every mutation automatically records a snapshot in `cms_revisions` with a sequential `revision_number` and change summary. An idempotent restore endpoint (`POST /api/v1/admin/cms/revisions/{revisionNumber}/restore`) restores any prior configuration snapshot.
 3. **Tenant Isolation:** Enforced strictly across all CMS queries and mutations. Cross-account access attempts return 404 Not Found without leaking configuration existence or data.
 4. **Declarative Component Whitelist:** CMS rendering in client applications (`apps/vault-web`) is mediated exclusively through a finite trusted component registry (`CmsSectionRenderer`). Allowed section types are restricted to `welcome`, `summary`, `quick_actions`, `recent_items`, `vault_cards`, `custom_info`, and `help_panel`. Arbitrary HTML, dynamic `<script>` tags, eval, and CSS execution are strictly prohibited. Text content is rendered as sanitized React text nodes.
 5. **Zero-Knowledge Isolation:** The CMS manages presentation, navigation, and theme tokens only. Plaintext vault records, encryption keys (VEKs/DEKs), passwords, and attachments are strictly isolated from the CMS and backend.<br>
-**Reason:** Fulfills Section 7, Section 13, and Section 14 requirements of the Master Build Spec. Delivers dynamic application configuration, administrative control, and audit trail versioning while rigorously enforcing zero-knowledge boundaries and XSS immunity.
+   **Reason:** Fulfills Section 7, Section 13, and Section 14 requirements of the Master Build Spec. Delivers dynamic application configuration, administrative control, and audit trail versioning while rigorously enforcing zero-knowledge boundaries and XSS immunity.
 
 ## ADR-0014: Phase 7 Main Web Application Architecture and Client Security Controls
 
 **Status:** Accepted for Phase 7<br>
 **Decision:** Implement the primary web vault application (`apps/vault-web`) with comprehensive modular views, client-side zero-knowledge security hygiene, and reactive state management:
+
 1. **Application Shell & Navigation:** Responsive layout with sticky top navbar (`AppNavbar`), vault selector, global quick-search across decrypted records, password generator launcher, and auto-lock badge. Collapsible sidebar (`AppSidebar`) with category count badges (Passwords, Notes, Identities, Payments, Documents) and alert indicators.
 2. **Specialized Record Category Views:**
    - **PasswordsView:** Filterable list, masked passwords, 30s auto-clearing clipboard copy, reveal/hide toggle, launch URL in new tab with `rel="noopener noreferrer"`.
@@ -114,12 +116,13 @@ Reference: [RustFS 1.0.4 release](https://github.com/rustfs/rustfs/releases) and
    - Configurable inactivity monitor (5m, 15m, 30m, 60m) automatically locks all vaults and wipes in-memory VEKs upon expiration.
    - Secure clipboard manager clears copied sensitive data after 30 seconds.
    - Safe CSS design tokens for customizable theme accents.<br>
-**Reason:** Fulfills Section 5, Section 6, Section 8, Section 10, and Section 14 requirements of the Master Build Spec. Delivers an accessible, zero-knowledge, and production-grade primary web interface.
+     **Reason:** Fulfills Section 5, Section 6, Section 8, Section 10, and Section 14 requirements of the Master Build Spec. Delivers an accessible, zero-knowledge, and production-grade primary web interface.
 
 ## ADR-0015: Phase 8 Backend Sync Engine and Conflict Handling
 
 **Status:** Accepted for Phase 8<br>
 **Decision:** Implement the append-only sync protocol, monotonic per-vault sequencing, optimistic concurrency with 409 Conflict detection, and client-side side-by-side conflict resolution:
+
 1. **Append-Only Sync Event Log & Monotonic Sequence Counter:**
    - Server assigns a strictly monotonic `sequence_id` (BIGINT) per vault in the `sync_events` table upon every successful sync operation.
    - Per-object revision tracking enforces `new_revision = base_revision + 1`. An upsert on a non-existent object requires `base_revision = 0` yielding revision `1`.
@@ -143,6 +146,33 @@ Reference: [RustFS 1.0.4 release](https://github.com/rustfs/rustfs/releases) and
      - **Keep Server**: Discards local pending changes and updates local store with server record.
      - **Merge**: Applies user's merged field selection, saves as new revision, and pushes.
    - Silent overwrite (last-write-wins) is strictly prevented.<br>
-**Reason:** Fulfills Section 5, Section 11 ("SYNC AND CONFLICT RESOLUTION"), and Section 14 requirements of the Master Build Spec. Guarantees deterministic event ordering across devices, cross-device consistency, data loss prevention, and strict zero-knowledge encryption guarantees.
+     **Reason:** Fulfills Section 5, Section 11 ("SYNC AND CONFLICT RESOLUTION"), and Section 14 requirements of the Master Build Spec. Guarantees deterministic event ordering across devices, cross-device consistency, data loss prevention, and strict zero-knowledge encryption guarantees.
 
+## ADR-0016: Phase 9 Encrypted Attachments and Object Storage Architecture
 
+**Status:** Accepted for Phase 9<br>
+**Decision:** Implement client-side streaming AEAD encryption, scoped presigned upload/download authorization sessions, server ciphertext validation, and document management:
+
+1. **Reviewed Streaming AEAD Protocol (`libsodium-wrappers` 0.8.4):**
+   - Implements `crypto_secretstream_xchacha20poly1305` framing strictly per specification:
+     - 8 bytes magic `PDVSTRM\0`
+     - 2 bytes protocol version (1)
+     - 24 bytes secretstream header
+     - Repeated frames: 4 bytes `u32be` frame ciphertext length (17 to 1,048,593), followed by ciphertext frame bytes.
+   - Per-frame associated data: `ASCII "PDV/1/attachment-chunk" || 0x00 || contextBytes || u64be(chunkIndex)`.
+   - The final stream chunk carries `TAG_FINAL`. An empty attachment is one empty plaintext final frame (55 bytes wire format).
+   - Reader fails closed on corrupted magic, version mismatch, truncated frames, out-of-order frames, missing `TAG_FINAL`, or trailing bytes.
+2. **Stream Key Wrapping:**
+   - A fresh random 32-byte key is generated per attachment upload.
+   - Wrapped using AES-256-KW with an HKDF key derived from the active VEK and object context (`purpose: "attachment"`, `objectId: attachmentId`).
+3. **Backend Upload & Download Sessions (`apps/api`):**
+   - `POST /api/v1/vaults/{vaultId}/attachments/upload-session`: Initiates authorized upload session with 100 MB size limit and SHA-256 digest validation.
+   - `POST /api/v1/vaults/{vaultId}/attachments/{attachmentId}/complete`: Verifies ciphertext size and SHA-256 hash before committing metadata in `attachments` table.
+   - `GET /api/v1/vaults/{vaultId}/attachments/{attachmentId}/download-session`: Generates authorized download session URL with expiration and digest.
+   - `GET` & `DELETE` on `/api/v1/vaults/{vaultId}/attachments/{attachmentId}`: Opaque metadata retrieval and soft deletion.
+   - `PUT` & `GET` on `/api/v1/vaults/{vaultId}/attachments/{attachmentId}/content`: Direct raw ciphertext stream endpoint for local development/testing.
+   - Strict tenant boundary enforcement: cross-tenant attachment access returns 404 Not Found.
+4. **Client UI & Local Caching (`apps/vault-web`):**
+   - `DocumentsView`: Interactive file attachment hub with client-side encryption before transfer, upload progress, file size badges, and download & decrypt action.
+   - Local caching: `encrypted_attachments` store in IndexedDB caches downloaded/uploaded ciphertext for offline resilience.<br>
+     **Reason:** Fulfills Section 5, Section 12, and Section 15 Phase 9 requirements of the Master Build Spec. Enforces end-to-end zero-knowledge secrecy for binary file payloads, memory-controlled streaming encryption, and tamper/truncation resistance.

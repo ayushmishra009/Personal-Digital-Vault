@@ -305,6 +305,126 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/vaults/{vaultId}/attachments": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+      };
+      cookie?: never;
+    };
+    /** List opaque attachment metadata for a vault */
+    get: operations["listAttachments"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/vaults/{vaultId}/attachments/upload-session": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Request an authorized upload session for an encrypted attachment */
+    post: operations["createAttachmentUploadSession"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/vaults/{vaultId}/attachments/{attachmentId}/complete": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+        attachmentId: components["parameters"]["AttachmentId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Finalize an attachment upload session after ciphertext transfer */
+    post: operations["completeAttachmentUpload"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/vaults/{vaultId}/attachments/{attachmentId}/download-session": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+        attachmentId: components["parameters"]["AttachmentId"];
+      };
+      cookie?: never;
+    };
+    /** Request an authorized download session for an encrypted attachment */
+    get: operations["createAttachmentDownloadSession"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/vaults/{vaultId}/attachments/{attachmentId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+        attachmentId: components["parameters"]["AttachmentId"];
+      };
+      cookie?: never;
+    };
+    /** Get attachment metadata */
+    get: operations["getAttachment"];
+    put?: never;
+    post?: never;
+    /** Soft delete an attachment */
+    delete: operations["deleteAttachment"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/vaults/{vaultId}/attachments/{attachmentId}/content": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+        attachmentId: components["parameters"]["AttachmentId"];
+      };
+      cookie?: never;
+    };
+    /** Download raw encrypted attachment ciphertext directly (fallback or development storage endpoint) */
+    get: operations["downloadAttachmentContent"];
+    /** Upload raw encrypted attachment ciphertext directly (fallback or development storage endpoint) */
+    put: operations["uploadAttachmentContent"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/app/configuration": {
     parameters: {
       query?: never;
@@ -827,8 +947,54 @@ export interface components {
       theme: components["schemas"]["CmsThemeSettings"];
       revisionNumber: number;
     };
+    AttachmentMetadata: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      vaultId: string;
+      ciphertextSize: number;
+      ciphertextDigest: components["schemas"]["Base64Url"];
+      /** Format: date-time */
+      createdAt: string;
+    };
+    AttachmentList: {
+      items: components["schemas"]["AttachmentMetadata"][];
+    };
+    AttachmentUploadSessionRequest: {
+      ciphertextSize: number;
+      ciphertextDigest: components["schemas"]["Base64Url"];
+    };
+    AttachmentUploadSessionResponse: {
+      /** Format: uuid */
+      attachmentId: string;
+      uploadUrl: string;
+      objectKey: string;
+      /** Format: date-time */
+      expiresAt: string;
+      maxCiphertextSize: number;
+    };
+    AttachmentCompleteRequest: {
+      ciphertextSize: number;
+      ciphertextDigest: components["schemas"]["Base64Url"];
+    };
+    AttachmentDownloadSessionResponse: {
+      downloadUrl: string;
+      ciphertextSize: number;
+      ciphertextDigest: components["schemas"]["Base64Url"];
+      /** Format: date-time */
+      expiresAt: string;
+    };
   };
   responses: {
+    /** @description Bad request syntax or malformed payload */
+    BadRequest: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Problem"];
+      };
+    };
     /** @description Authentication required */
     Unauthorized: {
       headers: {
@@ -890,6 +1056,7 @@ export interface components {
     DeviceId: string;
     VaultId: string;
     ObjectId: string;
+    AttachmentId: string;
   };
   requestBodies: never;
   headers: never;
@@ -1448,6 +1615,217 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listAttachments: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of attachments */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AttachmentList"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  createAttachmentUploadSession: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AttachmentUploadSessionRequest"];
+      };
+    };
+    responses: {
+      /** @description Upload session created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AttachmentUploadSessionResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  completeAttachmentUpload: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+        attachmentId: components["parameters"]["AttachmentId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AttachmentCompleteRequest"];
+      };
+    };
+    responses: {
+      /** @description Attachment finalized */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AttachmentMetadata"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  createAttachmentDownloadSession: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+        attachmentId: components["parameters"]["AttachmentId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Download session created */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AttachmentDownloadSessionResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  getAttachment: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+        attachmentId: components["parameters"]["AttachmentId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Attachment metadata */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AttachmentMetadata"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  deleteAttachment: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+        attachmentId: components["parameters"]["AttachmentId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Attachment deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  downloadAttachmentContent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+        attachmentId: components["parameters"]["AttachmentId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Encrypted ciphertext stream */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/octet-stream": string;
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  uploadAttachmentContent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+        attachmentId: components["parameters"]["AttachmentId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/octet-stream": string;
+      };
+    };
+    responses: {
+      /** @description Ciphertext stored successfully */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
     };
   };
   getAppConfiguration: {

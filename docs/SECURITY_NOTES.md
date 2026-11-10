@@ -25,7 +25,14 @@
   - No last-write-wins: Silent data overwrite is prohibited. When base revision mismatches current server revision, the server emits an HTTP 409 Conflict. The client fetches the remote ciphertext, decrypts both versions locally using the client's volatile VEK, and presents explicit user resolution (rebase, discard, or field merge).
   - Cross-tenant boundary isolation: Sync endpoints enforce account ownership and active device authorization. Cross-tenant sync access attempts return 404 Not Found without leaking existence or revisions.
   - Replay protection & Idempotency: All sync operations carry a client-generated UUID `operation_id` deduplicated by `(vault_id, operation_id)`, preventing replay from generating redundant sequence counters or corrupted object revisions.
-- Phase 2 crypto-core operations are a prototype, **PENDING SECURITY REVIEW**; stream encryption is not yet implemented.
+- Phase 9 Encrypted Attachments & Object Storage Security Architecture:
+  - Streaming AEAD framing: File payloads are encrypted chunk-by-chunk using libsodium `crypto_secretstream_xchacha20poly1305` in client volatile memory. Each frame is authenticated with binary context AAD including vault ID, attachment ID, revision, and sequential chunk index.
+  - Zero-knowledge storage: The backend and object storage (RustFS/S3) receive and store strictly authenticated ciphertext. No plaintext filenames, content, or stream keys are stored on the server or in the database.
+  - Truncation and reordering defense: Secretstream tags (`TAG_MESSAGE`, `TAG_FINAL`) ensure streams cannot be truncated or reordered without detection. Decrypted bytes are not exposed until the final tag is authenticated.
+  - Key encapsulation: Each attachment revision uses a fresh random 32-byte stream key wrapped with AES-256-KW using an HKDF key derived from the active VEK.
+  - Integrity validation: The backend validates ciphertext byte lengths and 32-byte SHA-256 hashes on upload sessions.
+  - Quota controls: Uploads are capped at 100 MB per file attachment.
+- Phase 2 crypto-core operations and Phase 9 streaming are prototypes, **PENDING SECURITY REVIEW**.
 - Decrypted Vault Encryption Keys (VEKs) reside strictly in volatile client memory (`CryptoKey`) during active unlock; locking clears in-memory keys immediately. Keys are never transmitted over the wire or stored in environment variables.
 - The backend stores only opaque vault IDs, timestamps, and wrapped envelopes; it never receives plaintext labels, passwords, recovery secrets, or decrypted data.
 - PostgreSQL and RustFS are development services. Compose binds their published ports to loopback and uses randomly generated local credentials in an ignored `.env`.

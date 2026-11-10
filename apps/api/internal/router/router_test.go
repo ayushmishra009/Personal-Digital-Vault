@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -1147,5 +1148,197 @@ func TestSyncTenantIsolation(t *testing.T) {
 	recGetObjB := doRequest(h, "GET", "/api/v1/vaults/"+vaultA.ID+"/objects/any-obj", nil, cookieB)
 	if recGetObjB.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for cross-tenant get object, got %d", recGetObjB.Code)
+	}
+}
+
+func TestAttachmentLifecycle(t *testing.T) {
+	h, _ := setupTestServer()
+
+	cookie, _ := registerAndGetCookie(t, h, "att-owner@example.com")
+
+	salt := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16))
+	wrapped := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{2}, 40))
+
+	recVault := doRequest(h, "POST", "/api/v1/vaults", handlers.CreateVaultRequest{
+		ProtocolVersion: 1,
+		Envelopes: []handlers.VaultKeyEnvelopeDTO{
+			{
+				EnvelopeType:     "password",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "argon2id13",
+				KDFParameters:    map[string]int64{"parallelism": 4, "memoryKiB": 65536, "iterations": 3, "version": 19},
+				Salt:             salt,
+				WrappedVEK:       wrapped,
+			},
+			{
+				EnvelopeType:     "recovery",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "hkdf-sha256",
+				KDFParameters:    map[string]int64{},
+				Salt:             salt,
+				WrappedVEK:       wrapped,
+			},
+		},
+	}, cookie)
+	if recVault.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for vault creation, got %d: %s", recVault.Code, recVault.Body.String())
+	}
+	var vault domain.Vault
+	_ = json.Unmarshal(recVault.Body.Bytes(), &vault)
+
+	// 1. Create upload session
+	fakePayload := []byte("confidential-encrypted-stream-data")
+	hash := sha256.Sum256(fakePayload)
+	hashB64 := base64.RawURLEncoding.EncodeToString(hash[:])
+
+	recUploadSess := doRequest(h, "POST", "/api/v1/vaults/"+vault.ID+"/attachments/upload-session", handlers.AttachmentUploadSessionRequestDTO{
+		CiphertextSize:   int64(len(fakePayload)),
+		CiphertextDigest: hashB64,
+	}, cookie)
+	if recUploadSess.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for upload session, got %d: %s", recUploadSess.Code, recUploadSess.Body.String())
+	}
+	var uploadSess handlers.AttachmentUploadSessionResponseDTO
+	_ = json.Unmarshal(recUploadSess.Body.Bytes(), &uploadSess)
+
+	if uploadSess.AttachmentID == "" || uploadSess.UploadURL == "" {
+		t.Fatalf("invalid upload session response: %+v", uploadSess)
+	}
+
+	// 2. Upload raw ciphertext directly
+	reqUpload, _ := http.NewRequest("PUT", uploadSess.UploadURL, bytes.NewReader(fakePayload))
+	reqUpload.AddCookie(cookie)
+	reqUpload.Header.Set("Content-Type", "application/octet-stream")
+	recUpload := httptest.NewRecorder()
+	h.ServeHTTP(recUpload, reqUpload)
+	if recUpload.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for raw ciphertext upload, got %d: %s", recUpload.Code, recUpload.Body.String())
+	}
+
+	// 3. Complete attachment
+	recComplete := doRequest(h, "POST", "/api/v1/vaults/"+vault.ID+"/attachments/"+uploadSess.AttachmentID+"/complete", handlers.AttachmentCompleteRequestDTO{
+		CiphertextSize:   int64(len(fakePayload)),
+		CiphertextDigest: hashB64,
+	}, cookie)
+	if recComplete.Code != http.StatusOK {
+		t.Fatalf("expected 200 for complete, got %d: %s", recComplete.Code, recComplete.Body.String())
+	}
+	var attMeta handlers.AttachmentMetadataDTO
+	_ = json.Unmarshal(recComplete.Body.Bytes(), &attMeta)
+	if attMeta.CiphertextSize != int64(len(fakePayload)) || attMeta.CiphertextDigest != hashB64 {
+		t.Fatalf("unexpected attachment metadata: %+v", attMeta)
+	}
+
+	// 4. List attachments
+	recList := doRequest(h, "GET", "/api/v1/vaults/"+vault.ID+"/attachments", nil, cookie)
+	if recList.Code != http.StatusOK {
+		t.Fatalf("expected 200 for list attachments, got %d", recList.Code)
+	}
+	var listResp handlers.AttachmentListDTO
+	_ = json.Unmarshal(recList.Body.Bytes(), &listResp)
+	if len(listResp.Items) != 1 || listResp.Items[0].ID != uploadSess.AttachmentID {
+		t.Fatalf("expected 1 attachment in list, got %+v", listResp)
+	}
+
+	// 5. Create download session
+	recDownloadSess := doRequest(h, "GET", "/api/v1/vaults/"+vault.ID+"/attachments/"+uploadSess.AttachmentID+"/download-session", nil, cookie)
+	if recDownloadSess.Code != http.StatusOK {
+		t.Fatalf("expected 200 for download session, got %d", recDownloadSess.Code)
+	}
+	var downloadSess handlers.AttachmentDownloadSessionResponseDTO
+	_ = json.Unmarshal(recDownloadSess.Body.Bytes(), &downloadSess)
+	if downloadSess.DownloadURL == "" || downloadSess.CiphertextDigest != hashB64 {
+		t.Fatalf("invalid download session: %+v", downloadSess)
+	}
+
+	// 6. Download ciphertext
+	reqDownload, _ := http.NewRequest("GET", downloadSess.DownloadURL, nil)
+	reqDownload.AddCookie(cookie)
+	recDownload := httptest.NewRecorder()
+	h.ServeHTTP(recDownload, reqDownload)
+	if recDownload.Code != http.StatusOK {
+		t.Fatalf("expected 200 for download content, got %d", recDownload.Code)
+	}
+	if !bytes.Equal(recDownload.Body.Bytes(), fakePayload) {
+		t.Fatalf("downloaded bytes mismatch")
+	}
+
+	// 7. Delete attachment
+	recDelete := doRequest(h, "DELETE", "/api/v1/vaults/"+vault.ID+"/attachments/"+uploadSess.AttachmentID, nil, cookie)
+	if recDelete.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for delete attachment, got %d", recDelete.Code)
+	}
+
+	// 8. Subsequent GET returns 404
+	recAfterDelete := doRequest(h, "GET", "/api/v1/vaults/"+vault.ID+"/attachments/"+uploadSess.AttachmentID, nil, cookie)
+	if recAfterDelete.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after delete, got %d", recAfterDelete.Code)
+	}
+}
+
+func TestAttachmentTenantIsolation(t *testing.T) {
+	h, _ := setupTestServer()
+
+	cookieA, _ := registerAndGetCookie(t, h, "att-tenant-a@example.com")
+	cookieB, _ := registerAndGetCookie(t, h, "att-tenant-b@example.com")
+
+	salt := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16))
+	wrapped := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{2}, 40))
+
+	recVaultA := doRequest(h, "POST", "/api/v1/vaults", handlers.CreateVaultRequest{
+		ProtocolVersion: 1,
+		Envelopes: []handlers.VaultKeyEnvelopeDTO{
+			{
+				EnvelopeType:     "password",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "argon2id13",
+				KDFParameters:    map[string]int64{"parallelism": 4, "memoryKiB": 65536, "iterations": 3, "version": 19},
+				Salt:             salt,
+				WrappedVEK:       wrapped,
+			},
+			{
+				EnvelopeType:     "recovery",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "hkdf-sha256",
+				KDFParameters:    map[string]int64{},
+				Salt:             salt,
+				WrappedVEK:       wrapped,
+			},
+		},
+	}, cookieA)
+	var vaultA domain.Vault
+	_ = json.Unmarshal(recVaultA.Body.Bytes(), &vaultA)
+
+	fakePayload := []byte("secret-tenant-a")
+	hash := sha256.Sum256(fakePayload)
+	hashB64 := base64.RawURLEncoding.EncodeToString(hash[:])
+
+	recUploadSess := doRequest(h, "POST", "/api/v1/vaults/"+vaultA.ID+"/attachments/upload-session", handlers.AttachmentUploadSessionRequestDTO{
+		CiphertextSize:   int64(len(fakePayload)),
+		CiphertextDigest: hashB64,
+	}, cookieA)
+	var uploadSess handlers.AttachmentUploadSessionResponseDTO
+	_ = json.Unmarshal(recUploadSess.Body.Bytes(), &uploadSess)
+
+	// User B attempts to list attachments on User A's vault -> 404
+	recListB := doRequest(h, "GET", "/api/v1/vaults/"+vaultA.ID+"/attachments", nil, cookieB)
+	if recListB.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-tenant attachment list, got %d", recListB.Code)
+	}
+
+	// User B attempts to access User A's upload session / attachment -> 404
+	recGetAttB := doRequest(h, "GET", "/api/v1/vaults/"+vaultA.ID+"/attachments/"+uploadSess.AttachmentID, nil, cookieB)
+	if recGetAttB.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-tenant get attachment, got %d", recGetAttB.Code)
+	}
+
+	// User B attempts to delete User A's attachment -> 404
+	recDelAttB := doRequest(h, "DELETE", "/api/v1/vaults/"+vaultA.ID+"/attachments/"+uploadSess.AttachmentID, nil, cookieB)
+	if recDelAttB.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-tenant delete attachment, got %d", recDelAttB.Code)
 	}
 }

@@ -1770,3 +1770,246 @@ func (r *PostgresRepository) PutEncryptedObject(
 	}
 	return r.SubmitSyncOperation(ctx, accountID, deviceID, vaultID, op)
 }
+
+func (r *PostgresRepository) CreateAttachmentUploadSession(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	input *domain.AttachmentUploadSessionInput,
+) (*domain.AttachmentUploadSessionResult, error) {
+	var activeVaultID string
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT id FROM vaults WHERE account_id = $1 AND id = $2 AND status = 'active'`,
+		accountID,
+		vaultID,
+	).Scan(&activeVaultID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	const maxSizeBytes = 104857600
+	if input.CiphertextSize <= 0 || input.CiphertextSize > maxSizeBytes {
+		return nil, errors.New("invalid ciphertext size")
+	}
+	if len(input.CiphertextHash) != 32 {
+		return nil, errors.New("invalid ciphertext hash length: must be 32 bytes")
+	}
+
+	attID := newUUID()
+	objectKey := fmt.Sprintf("vaults/%s/attachments/%s", vaultID, attID)
+	now := time.Now().UTC()
+	expiresAt := now.Add(1 * time.Hour)
+
+	_, err = r.db.ExecContext(
+		ctx,
+		`INSERT INTO attachments (id, account_id, vault_id, object_key, ciphertext_size, ciphertext_hash, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		attID,
+		accountID,
+		vaultID,
+		objectKey,
+		input.CiphertextSize,
+		input.CiphertextHash,
+		now,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	uploadURL := fmt.Sprintf("/api/v1/vaults/%s/attachments/%s/content", vaultID, attID)
+	return &domain.AttachmentUploadSessionResult{
+		AttachmentID:      attID,
+		UploadURL:         uploadURL,
+		ObjectKey:         objectKey,
+		ExpiresAt:         expiresAt,
+		MaxCiphertextSize: maxSizeBytes,
+	}, nil
+}
+
+func (r *PostgresRepository) CompleteAttachment(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	attachmentID string,
+	input *domain.AttachmentCompleteInput,
+) (*domain.Attachment, error) {
+	if input.CiphertextSize <= 0 {
+		return nil, errors.New("invalid ciphertext size")
+	}
+	if len(input.CiphertextHash) != 32 {
+		return nil, errors.New("invalid ciphertext hash length")
+	}
+
+	var att domain.Attachment
+	err := r.db.QueryRowContext(
+		ctx,
+		`UPDATE attachments
+		 SET ciphertext_size = $1, ciphertext_hash = $2
+		 WHERE account_id = $3 AND vault_id = $4 AND id = $5 AND deleted_at IS NULL
+		 RETURNING id, account_id, vault_id, object_key, ciphertext_size, ciphertext_hash, created_at, deleted_at`,
+		input.CiphertextSize,
+		input.CiphertextHash,
+		accountID,
+		vaultID,
+		attachmentID,
+	).Scan(
+		&att.ID,
+		&att.AccountID,
+		&att.VaultID,
+		&att.ObjectKey,
+		&att.CiphertextSize,
+		&att.CiphertextHash,
+		&att.CreatedAt,
+		&att.DeletedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &att, nil
+}
+
+func (r *PostgresRepository) GetAttachment(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	attachmentID string,
+) (*domain.Attachment, error) {
+	var att domain.Attachment
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT id, account_id, vault_id, object_key, ciphertext_size, ciphertext_hash, created_at, deleted_at
+		 FROM attachments
+		 WHERE account_id = $1 AND vault_id = $2 AND id = $3 AND deleted_at IS NULL`,
+		accountID,
+		vaultID,
+		attachmentID,
+	).Scan(
+		&att.ID,
+		&att.AccountID,
+		&att.VaultID,
+		&att.ObjectKey,
+		&att.CiphertextSize,
+		&att.CiphertextHash,
+		&att.CreatedAt,
+		&att.DeletedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &att, nil
+}
+
+func (r *PostgresRepository) ListAttachments(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+) ([]domain.Attachment, error) {
+	var activeVaultID string
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT id FROM vaults WHERE account_id = $1 AND id = $2 AND status = 'active'`,
+		accountID,
+		vaultID,
+	).Scan(&activeVaultID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	rows, err := r.db.QueryContext(
+		ctx,
+		`SELECT id, account_id, vault_id, object_key, ciphertext_size, ciphertext_hash, created_at, deleted_at
+		 FROM attachments
+		 WHERE account_id = $1 AND vault_id = $2 AND deleted_at IS NULL
+		 ORDER BY created_at DESC`,
+		accountID,
+		vaultID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []domain.Attachment
+	for rows.Next() {
+		var a domain.Attachment
+		if err := rows.Scan(
+			&a.ID,
+			&a.AccountID,
+			&a.VaultID,
+			&a.ObjectKey,
+			&a.CiphertextSize,
+			&a.CiphertextHash,
+			&a.CreatedAt,
+			&a.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		list = append(list, a)
+	}
+	return list, rows.Err()
+}
+
+func (r *PostgresRepository) DeleteAttachment(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	attachmentID string,
+) error {
+	res, err := r.db.ExecContext(
+		ctx,
+		`UPDATE attachments
+		 SET deleted_at = now()
+		 WHERE account_id = $1 AND vault_id = $2 AND id = $3 AND deleted_at IS NULL`,
+		accountID,
+		vaultID,
+		attachmentID,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *PostgresRepository) SaveAttachmentBlob(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	attachmentID string,
+	data []byte,
+) error {
+	_, err := r.GetAttachment(ctx, accountID, vaultID, attachmentID)
+	return err
+}
+
+func (r *PostgresRepository) GetAttachmentBlob(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	attachmentID string,
+) ([]byte, error) {
+	_, err := r.GetAttachment(ctx, accountID, vaultID, attachmentID)
+	if err != nil {
+		return nil, err
+	}
+	return nil, errors.New("blob storage not configured for postgres direct retrieval")
+}

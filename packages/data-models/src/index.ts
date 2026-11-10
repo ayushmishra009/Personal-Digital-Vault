@@ -144,6 +144,35 @@ export interface AttachmentMetadata {
   createdAt: ISODateTime;
 }
 
+export interface AttachmentList {
+  items: AttachmentMetadata[];
+}
+
+export interface AttachmentUploadSessionRequest {
+  ciphertextSize: number;
+  ciphertextDigest: Base64Url;
+}
+
+export interface AttachmentUploadSessionResponse {
+  attachmentId: OpaqueId;
+  uploadUrl: string;
+  objectKey: string;
+  expiresAt: ISODateTime;
+  maxCiphertextSize: number;
+}
+
+export interface AttachmentCompleteRequest {
+  ciphertextSize: number;
+  ciphertextDigest: Base64Url;
+}
+
+export interface AttachmentDownloadSessionResponse {
+  downloadUrl: string;
+  ciphertextSize: number;
+  ciphertextDigest: Base64Url;
+  expiresAt: ISODateTime;
+}
+
 export interface BackupMetadata {
   snapshotId: OpaqueId;
   vaultId: OpaqueId;

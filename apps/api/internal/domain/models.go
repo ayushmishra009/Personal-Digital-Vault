@@ -127,6 +127,31 @@ type Attachment struct {
 	DeletedAt      *time.Time
 }
 
+type AttachmentUploadSessionInput struct {
+	CiphertextSize int64
+	CiphertextHash []byte
+}
+
+type AttachmentUploadSessionResult struct {
+	AttachmentID      string
+	UploadURL         string
+	ObjectKey         string
+	ExpiresAt         time.Time
+	MaxCiphertextSize int64
+}
+
+type AttachmentDownloadSessionResult struct {
+	DownloadURL    string
+	CiphertextSize int64
+	CiphertextHash []byte
+	ExpiresAt      time.Time
+}
+
+type AttachmentCompleteInput struct {
+	CiphertextSize int64
+	CiphertextHash []byte
+}
+
 type AuditEvent struct {
 	ID        string
 	AccountID string

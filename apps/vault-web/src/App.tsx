@@ -937,6 +937,10 @@ export function App() {
                 setShowRecordModal(true);
               }}
               onDelete={handleDeleteRecord}
+              activeVaultId={activeVaultId}
+              activeVek={
+                activeVaultId ? unlockedKeys[activeVaultId] : undefined
+              }
             />
           )}
 
