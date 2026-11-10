@@ -12,42 +12,51 @@ type Account struct {
 }
 
 type AuthCredential struct {
-	ID             string
-	AccountID      string
-	CredentialType string
-	CredentialID   []byte
-	PublicKey      []byte
-	ExternalSubject string
-	CreatedAt      time.Time
-	LastUsedAt     *time.Time
+	ID              string
+	AccountID       string
+	CredentialType  string
+	CredentialID    string
+	PublicKey       []byte
+	ExternalSubject *string
+	CreatedAt       time.Time
+	LastUsedAt      *time.Time
 }
 
 type Device struct {
-	ID                   string
-	AccountID            string
-	PublicKeyAlgorithm   string
-	PublicKey            []byte
-	Label                string
-	Platform             string
-	Browser              string
-	Status               string
-	CreatedAt            time.Time
-	LastSeenAt           *time.Time
-	RevokedAt            *time.Time
+	ID                 string
+	AccountID          string
+	PublicKeyAlgorithm string
+	PublicKey          []byte
+	Label              string
+	Platform           string
+	Browser            string
+	Status             string
+	CreatedAt          time.Time
+	LastSeenAt         *time.Time
+	RevokedAt          *time.Time
 }
 
 type DeviceEnrollment struct {
-	ID                       string
-	AccountID                string
-	DeviceID                 string
-	NewPublicKeyAlgorithm    string
-	NewPublicKey             []byte
-	ChallengeHash            []byte
-	ExpiresAt                time.Time
-	Status                   string
-	ApprovalSignature        []byte
-	ApproverDeviceID         string
-	ApprovedAt               *time.Time
+	ID                string
+	AccountID         string
+	DeviceID          string
+	ChallengeHash     []byte
+	ExpiresAt         time.Time
+	Status            string
+	ApprovalSignature []byte
+	ApproverDeviceID  *string
+	ApprovedAt        *time.Time
+	CreatedAt         time.Time
+}
+
+type Session struct {
+	ID           string
+	AccountID    string
+	DeviceID     string
+	TokenHash    []byte
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
+	LastActiveAt time.Time
 }
 
 type Vault struct {

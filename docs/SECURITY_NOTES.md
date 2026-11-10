@@ -3,7 +3,7 @@
 ## Current state
 
 - This Phase 1 foundation is not suitable for real vault data.
-- The API exposes health routes only. The OpenAPI contract describes future endpoints; authentication, authorization, and API-level tenant enforcement are not implemented.
+- The API implements Phase 3 authentication and device enrollment with strict tenant enforcement and cryptographic session hashing. Vault endpoints remain unimplemented pending Phase 4.
 - The Admin frontend is a visible shell, not an authenticated panel yet.
 - Phase 2 crypto-core operations are a partial, unreviewed prototype; Argon2id is only an interface, and stream encryption is not implemented.
 - PostgreSQL and RustFS are development services. Compose binds their published ports to loopback and uses randomly generated local credentials in an ignored `.env`.

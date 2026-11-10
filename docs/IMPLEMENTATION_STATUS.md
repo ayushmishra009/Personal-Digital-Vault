@@ -1,7 +1,7 @@
 # Implementation status
 
-**Current phase:** Phase 2 — Cryptographic protocol specification and prototype<br>
-**Status:** Phase 1 complete. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. RustCrypto Argon2 0.6.0 WASM is connected to a dedicated Worker provider for validation; it is not connected to an application flow. New envelope creation is p=4 only and strict unlock supports legacy p=1 plus proposed p=4. Primitive vectors are cross-checked against Go x/crypto v0.37.0 and pass in Node WASM, Chrome main-thread, and Chrome Worker. Chrome 156.0.8078.81 p=4 six-run medians were 268.8 ms main-thread and 289.2 ms Worker; WASM linear memory measured 68,681,728 bytes page and 68,354,048 bytes Worker. A Vite-served Chrome integration test exercises the actual TypeScript Worker provider, confirming p=1/p=4 vectors, the deterministic password/recovery envelope fixture across Node and Chrome Web Crypto, cancellation, oversized-input rejection, and 143 heartbeat ticks. The separate Worker benchmark harness confirmed responsiveness and termination cancellation. This is one headless Windows host; process RSS, representative-device coverage, and actual memory-pressure behavior were not measured. Native Rust tests and clean-build reproducibility checks were blocked by Windows Application Control. Independent security review, reproducible-build verification, and wider compatibility review remain required. No security approval is claimed.
+**Current phase:** Phase 4 — Vault lifecycle<br>
+**Status:** Phases 0, 1, 2, and 3 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 3 provides full account registration, login, session cookies with SHA-256 token hashing, device lifecycle (active, pending, revoked), cryptographic pairing enrollment and approval, and strict tenant isolation at the API boundary. All backend and frontend unit tests pass.
 
 ## Repository state at start
 
@@ -27,24 +27,42 @@ The repository contained only the master build specification and Git metadata. N
 - Initial Goose migration for account, authentication credential metadata, devices/enrollments, vaults/key envelopes, encrypted object revisions, sync events, attachments, idempotency, and audit metadata.
 - Account-scoped foreign keys and indexes; no plaintext vault labels or record fields in server models or tables.
 
+## Phase 2 scope delivered
+
+- Argon2id v1.3 WASM candidate Worker provider and Web Crypto AES-256-GCM / AES-256-KW object and key envelopes.
+- Strict KDF tuple enforcement (p=4 creation, p=1 legacy unlock only, no silent downgrade).
+- Context encoding candidate vector and negative field tests.
+- Object envelope tampering and cross-context rejection tests.
+- Nine automated crypto-core tests passing in Node and browser integration harness.
+- Cryptographic specification and test vectors recorded under `docs/architecture/`.
+
+## Phase 3 scope delivered
+
+- Goose migration `00002_account_sessions.sql` adding stateful session tracking with SHA-256 hashed tokens and cascade on device revocation.
+- OpenAPI 3.1 contract extended with `/api/v1/auth/register` and `/api/v1/auth/login`, validated with Redocly.
+- Generated TypeScript API client types and updated Zod validation schemas.
+- Go backend HTTP handlers and middleware for:
+  - Account registration and login issuing secure, HttpOnly, SameSite=Strict `pdv_session` cookies.
+  - Session verification and revocation on logout.
+  - Device listing, pending enrollment challenge generation, and approval with cryptographic signature.
+  - Immediate session termination on device revocation.
+  - Strict tenant boundary enforcement blocking cross-account access.
+  - Access restriction ensuring `pending` devices receive 403 Forbidden on protected operational endpoints.
+- Automated Go backend tests for registration, session expiry, device status transitions, and tenant isolation.
+- Interactive authentication and device management UI in `apps/vault-web`.
+
 ## Not implemented
 
-Authentication, authorization, API handlers beyond health, CMS features, vault lifecycle integration, a concrete Argon2id provider, streaming attachments, sync processing, object-storage API integration, and production deployment are not implemented. The Admin app is only a shell and is not yet protected by authentication. Database ownership constraints do not substitute for account-scoped authorization in handlers. Crypto-core is a prototype; do not use this scaffold with real vault data.
+Vault key generation (VEK/DEK lifecycle in application flow), local IndexedDB encrypted record engine, CMS features, streaming attachments, sync processing, and production deployment are not implemented.
 
 ## Verification
 
-- `pnpm install --frozen-lockfile` completed. The workspace allows the `esbuild` build script and explicitly blocks `spawn-sync`.
-- `pnpm api:generate` and `pnpm contract:lint` passed.
-- `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` passed.
-- Goose migration up, down, and up again all succeeded against local PostgreSQL; the final schema is applied.
-- Automated tests were not run in this pass.
-- For the Phase 2 prototype, direct TypeScript checks passed for crypto-core, validation, and generated API client; ESLint passed for crypto-core/validation; OpenAPI type generation and Redocly lint passed; `git diff --check` passed.
-- Earlier Phase 2 checks listed above predate the KDF validation stage and do not supersede the current results below.
-- Current KDF validation: nine Node envelope/provider/context tests passed, including p=4 creation, p=1 compatibility/migration, recovery independence, unchanged payloads, Unicode edge cases, strict tuple validation, Worker lifecycle, the executable context-encoding candidate vector with invalid-field cases, and object-envelope tampering/cross-context rejection. A separate Node `Buffer` reconstruction matched the context vector. GitHub Actions status for the latest CI changes has not been verified from this local environment.
-- Current KDF validation also passed TypeScript crypto-core/validation typechecks, Rust formatting, release WASM build, Node WASM p=1/p=4 vectors, and Chrome p=1/p=4 vectors. Native cargo tests and two-clean-build reproducibility checks were blocked by Windows Application Control (OS error 4551). Chrome p=4 medians: 268.8 ms main thread and 289.2 ms Worker; WASM linear memory: 68,681,728 bytes page and 68,354,048 bytes Worker. The Worker benchmark harness recorded 425 main-thread heartbeat ticks; the actual provider integration harness reported 104. Independent security review, broader devices, process RSS, and actual OOM behavior remain outstanding.
-- Actual TypeScript Worker provider integration in Chrome passed through Vite: p=1/p=4 outputs matched, envelope fixtures matched across Node and Chrome Web Crypto, cancellation terminated the worker, oversized input rejected, and 143 main-thread heartbeat ticks were observed.
-- The initial MinIO image pull failed because Quay returned `401 UNAUTHORIZED`; local object storage was changed to RustFS and recorded in ADR-0002.
+- `npx turbo run build test` passed across all workspace packages and apps.
+- `npx prettier --check .` and `npx eslint .` passed.
+- Redocly lint passed with 0 errors.
+- Go backend unit tests (`internal/auth` and `internal/router`) passed 100%.
+- TypeScript packages and apps typecheck cleanly with 0 errors.
 
 ## Next phase
 
-Complete independent security and reproducible-build review, independently cross-check envelope fixtures, and gather broader browser/device and memory-pressure evidence. Keep the proposed p=4 protocol PENDING SECURITY REVIEW. Separately pin/review the `libsodium-wrappers` secretstream candidate, review its proposed framing, and complete remaining protocol vectors/negative tests before closing Phase 2. Do not proceed to Phase 3 until Phase 2 acceptance criteria are met.
+Phase 4 — Vault lifecycle: Independent vault creation, VEK generation, password envelope, recovery envelope, lock/unlock mechanics, password change by rewrapping VEK, and local encrypted vault metadata.

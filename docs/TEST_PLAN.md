@@ -37,6 +37,22 @@ These are planned checks. Phase 1's implementation pass did not add or run autom
 - Implemented and run locally: context encoding candidate vector and invalid-field cases, plus the object-envelope negative cases listed above, in the crypto-core Node suite; expected context bytes were reconstructed separately with Node `Buffer` big-endian writes. This is not an independent security review, and GitHub Actions status has not been verified from this environment.
 - Remaining vectors and checks are incomplete; see `docs/architecture/CRYPTO_TEST_VECTORS.md`.
 
+## Phase 3 authentication and device verification targets
+
+- Verify account registration creates initial active device and emits secure HttpOnly `pdv_session` cookie.
+- Verify duplicate account registration fails with 409 Conflict.
+- Verify invalid registration inputs fail with 422 Unprocessable Entity.
+- Verify session endpoint returns account and device data for valid cookie, and 401 Unauthorized when missing or expired.
+- Verify logout revokes session and clears cookie.
+- Verify secondary device enrollment starts in `pending` state with challenge and 10-minute expiry.
+- Verify `pending` device receives 403 Forbidden on active-device-required operational routes.
+- Verify active device approves pending enrollment with cryptographic signature, activating the device.
+- Verify expired or already-approved enrollment cannot be approved (409 Conflict).
+- Verify device revocation invalidates all associated sessions immediately and blocks subsequent requests (401 Unauthorized).
+- Verify cross-account tenant isolation (Account A cannot view, approve, or revoke Account B's enrollments or devices).
+
+All Phase 3 verification targets pass in Go backend test suite (`apps/api/internal/router` and `apps/api/internal/auth`).
+
 ## Later security and product coverage
 
 Follow the master specification's crypto known-answer and negative tests, backend authorization/tenant isolation tests, offline/conflict tests, CMS schema/revision tests, attachment ciphertext checks, extension origin-boundary tests, and end-to-end flows. Round-trip crypto tests alone are insufficient. Do not use production data in tests.

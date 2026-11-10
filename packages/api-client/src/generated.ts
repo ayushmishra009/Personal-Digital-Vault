@@ -38,6 +38,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/auth/register": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Register a new account and initial active device */
+    post: operations["registerAccount"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/login": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Authenticate an account and issue a session */
+    post: operations["loginAccount"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/auth/session": {
     parameters: {
       query?: never;
@@ -203,7 +237,10 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    /** Create or replace a client-generated key envelope */
+    /**
+     * Create or replace a client-generated key envelope
+     * @description New password envelopes must use p=4; legacy p=1 envelopes are accepted for reading/unlock only. Body envelopeType must match the path parameter.
+     */
     put: operations["putVaultKeyEnvelope"];
     post?: never;
     delete?: never;
@@ -299,10 +336,37 @@ export interface components {
     };
     AccountSession: {
       account: components["schemas"]["Account"];
+      device?: components["schemas"]["Device"];
       /** Format: date-time */
       authenticatedAt: string;
       /** Format: date-time */
       expiresAt: string;
+    };
+    AccountRegistrationRequest: {
+      /** Format: email */
+      email: string;
+      deviceLabel: string;
+      platform: string;
+      browser: string;
+      publicKeyAlgorithm: string;
+      publicKey: components["schemas"]["Base64Url"];
+      /** @enum {string} */
+      credentialType: "webauthn" | "external";
+      credentialId: string;
+      credentialPublicKey?: components["schemas"]["Base64Url"];
+      externalSubject?: string;
+    };
+    AccountLoginRequest: {
+      /** Format: email */
+      email: string;
+      /** Format: uuid */
+      deviceId: string;
+      /** @enum {string} */
+      credentialType: "webauthn" | "external";
+      credentialId: string;
+      clientDataJson?: components["schemas"]["Base64Url"];
+      authenticatorData?: components["schemas"]["Base64Url"];
+      signature?: components["schemas"]["Base64Url"];
     };
     Device: {
       /** Format: uuid */
@@ -500,6 +564,15 @@ export interface components {
         "application/json": components["schemas"]["Problem"];
       };
     };
+    /** @description Access forbidden (e.g. account suspended or device pending/revoked) */
+    Forbidden: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Problem"];
+      };
+    };
     /** @description Resource not found or not visible to this account */
     NotFound: {
       headers: {
@@ -603,6 +676,62 @@ export interface operations {
         content?: never;
       };
       503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  registerAccount: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AccountRegistrationRequest"];
+      };
+    };
+    responses: {
+      /** @description Account created and authenticated session established */
+      201: {
+        headers: {
+          /** @description Secure HTTP-only session cookie */
+          "Set-Cookie"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountSession"];
+        };
+      };
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  loginAccount: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AccountLoginRequest"];
+      };
+    };
+    responses: {
+      /** @description Authenticated session established */
+      200: {
+        headers: {
+          /** @description Secure HTTP-only session cookie */
+          "Set-Cookie"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountSession"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
     };
   };
   getSession: {

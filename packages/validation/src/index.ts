@@ -130,12 +130,6 @@ export const AccountSchema = z.strictObject({
   createdAt: DateTimeSchema,
 });
 
-export const AccountSessionSchema = z.strictObject({
-  account: AccountSchema,
-  authenticatedAt: DateTimeSchema,
-  expiresAt: DateTimeSchema,
-});
-
 export const DeviceSchema = z.strictObject({
   id: OpaqueIdSchema,
   label: z.string().min(1).max(100),
@@ -145,6 +139,36 @@ export const DeviceSchema = z.strictObject({
   createdAt: DateTimeSchema,
   lastSeenAt: DateTimeSchema.optional(),
   revokedAt: DateTimeSchema.optional(),
+});
+
+export const AccountSessionSchema = z.strictObject({
+  account: AccountSchema,
+  device: DeviceSchema.optional(),
+  authenticatedAt: DateTimeSchema,
+  expiresAt: DateTimeSchema,
+});
+
+export const AccountRegistrationRequestSchema = z.strictObject({
+  email: z.string().email(),
+  deviceLabel: z.string().min(1).max(100),
+  platform: z.string().min(1).max(80),
+  browser: z.string().min(1).max(80),
+  publicKeyAlgorithm: z.string().min(1).max(64),
+  publicKey: Base64UrlSchema,
+  credentialType: z.enum(["webauthn", "external"]),
+  credentialId: z.string().min(1).max(255),
+  credentialPublicKey: Base64UrlSchema.optional(),
+  externalSubject: z.string().min(1).max(255).optional(),
+});
+
+export const AccountLoginRequestSchema = z.strictObject({
+  email: z.string().email(),
+  deviceId: OpaqueIdSchema,
+  credentialType: z.enum(["webauthn", "external"]),
+  credentialId: z.string().min(1).max(255),
+  clientDataJson: Base64UrlSchema.optional(),
+  authenticatorData: Base64UrlSchema.optional(),
+  signature: Base64UrlSchema.optional(),
 });
 
 export const DeviceEnrollmentSchema = z.strictObject({

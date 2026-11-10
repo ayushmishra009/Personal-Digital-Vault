@@ -12,8 +12,32 @@ export interface Account {
 
 export interface AccountSession {
   account: Account;
+  device?: Device;
   expiresAt: ISODateTime;
   authenticatedAt: ISODateTime;
+}
+
+export interface AccountRegistrationRequest {
+  email: string;
+  deviceLabel: string;
+  platform: string;
+  browser: string;
+  publicKeyAlgorithm: string;
+  publicKey: Base64Url;
+  credentialType: "webauthn" | "external";
+  credentialId: string;
+  credentialPublicKey?: Base64Url;
+  externalSubject?: string;
+}
+
+export interface AccountLoginRequest {
+  email: string;
+  deviceId: OpaqueId;
+  credentialType: "webauthn" | "external";
+  credentialId: string;
+  clientDataJson?: Base64Url;
+  authenticatorData?: Base64Url;
+  signature?: Base64Url;
 }
 
 export interface Device {

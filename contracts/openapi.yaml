@@ -54,6 +54,64 @@ paths:
         "405":
           description: Method not allowed
 
+  /api/v1/auth/register:
+    post:
+      tags: [Authentication]
+      operationId: registerAccount
+      summary: Register a new account and initial active device
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountRegistrationRequest"
+      responses:
+        "201":
+          description: Account created and authenticated session established
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Secure HTTP-only session cookie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountSession"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      operationId: loginAccount
+      summary: Authenticate an account and issue a session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountLoginRequest"
+      responses:
+        "200":
+          description: Authenticated session established
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Secure HTTP-only session cookie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/auth/session:
     get:
       tags: [Authentication]
@@ -499,6 +557,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Problem"
+    Forbidden:
+      description: Access forbidden (e.g. account suspended or device pending/revoked)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
     NotFound:
       description: Resource not found or not visible to this account
       content:
@@ -583,12 +647,87 @@ components:
       properties:
         account:
           $ref: "#/components/schemas/Account"
+        device:
+          $ref: "#/components/schemas/Device"
         authenticatedAt:
           type: string
           format: date-time
         expiresAt:
           type: string
           format: date-time
+    AccountRegistrationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          email,
+          deviceLabel,
+          platform,
+          browser,
+          publicKeyAlgorithm,
+          publicKey,
+          credentialType,
+          credentialId,
+        ]
+      properties:
+        email:
+          type: string
+          format: email
+        deviceLabel:
+          type: string
+          minLength: 1
+          maxLength: 100
+        platform:
+          type: string
+          minLength: 1
+          maxLength: 80
+        browser:
+          type: string
+          minLength: 1
+          maxLength: 80
+        publicKeyAlgorithm:
+          type: string
+          minLength: 1
+          maxLength: 64
+        publicKey:
+          $ref: "#/components/schemas/Base64Url"
+        credentialType:
+          type: string
+          enum: [webauthn, external]
+        credentialId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        credentialPublicKey:
+          $ref: "#/components/schemas/Base64Url"
+        externalSubject:
+          type: string
+          minLength: 1
+          maxLength: 255
+    AccountLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, deviceId, credentialType, credentialId]
+      properties:
+        email:
+          type: string
+          format: email
+        deviceId:
+          type: string
+          format: uuid
+        credentialType:
+          type: string
+          enum: [webauthn, external]
+        credentialId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        clientDataJson:
+          $ref: "#/components/schemas/Base64Url"
+        authenticatorData:
+          $ref: "#/components/schemas/Base64Url"
+        signature:
+          $ref: "#/components/schemas/Base64Url"
     Device:
       type: object
       additionalProperties: false
