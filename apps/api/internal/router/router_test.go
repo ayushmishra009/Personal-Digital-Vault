@@ -11,6 +11,7 @@ import (
 
 	"github.com/personal-digital-vault/api/internal/auth"
 	"github.com/personal-digital-vault/api/internal/database"
+	"github.com/personal-digital-vault/api/internal/domain"
 	"github.com/personal-digital-vault/api/internal/handlers"
 	"github.com/personal-digital-vault/api/internal/router"
 )
@@ -327,5 +328,248 @@ func TestTenantIsolation(t *testing.T) {
 	recCrossRevoke := doRequest(h, "POST", "/api/v1/devices/"+enrRespB.DeviceID+"/revoke", nil, cookieA)
 	if recCrossRevoke.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for cross-account device revocation, got %d", recCrossRevoke.Code)
+	}
+}
+
+func sampleEnvelopes() []handlers.VaultKeyEnvelopeDTO {
+	salt := base64.RawURLEncoding.EncodeToString(make([]byte, 16))
+	wrappedVek := base64.RawURLEncoding.EncodeToString(make([]byte, 40))
+
+	return []handlers.VaultKeyEnvelopeDTO{
+		{
+			EnvelopeType:     "password",
+			ProtocolVersion:  1,
+			KeyWrapAlgorithm: "AES-256-KW",
+			KDFAlgorithm:     "argon2id13",
+			KDFParameters: map[string]int64{
+				"version":     19,
+				"memoryKiB":   65536,
+				"iterations":  3,
+				"parallelism": 4,
+			},
+			Salt:       salt,
+			WrappedVEK: wrappedVek,
+		},
+		{
+			EnvelopeType:     "recovery",
+			ProtocolVersion:  1,
+			KeyWrapAlgorithm: "AES-256-KW",
+			KDFAlgorithm:     "hkdf-sha256",
+			KDFParameters:    map[string]int64{},
+			Salt:             salt,
+			WrappedVEK:       wrappedVek,
+		},
+	}
+}
+
+func TestVaultLifecycle(t *testing.T) {
+	h, repo := setupTestServer()
+
+	// Register account & active device
+	pub := base64.RawURLEncoding.EncodeToString([]byte("pubkey-32bytes-for-vault-tester!"))
+	regReq := handlers.RegisterRequest{
+		Email:              "vaultuser@example.com",
+		DeviceLabel:        "Vault Laptop",
+		Platform:           "macOS",
+		Browser:            "Safari",
+		PublicKeyAlgorithm: "Ed25519",
+		PublicKey:          pub,
+		CredentialType:     "external",
+		CredentialID:       "cred-vault-1",
+	}
+	recReg := doRequest(h, "POST", "/api/v1/auth/register", regReq, nil)
+	activeCookie := recReg.Result().Cookies()[0]
+
+	// 1. Create Vault with valid envelopes
+	createReq := handlers.CreateVaultRequest{
+		ProtocolVersion: 1,
+		Envelopes:       sampleEnvelopes(),
+	}
+	recCreate := doRequest(h, "POST", "/api/v1/vaults", createReq, activeCookie)
+	if recCreate.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for vault, got %d (body: %s)", recCreate.Code, recCreate.Body.String())
+	}
+
+	var vaultResp handlers.VaultMetadataResponse
+	if err := json.Unmarshal(recCreate.Body.Bytes(), &vaultResp); err != nil {
+		t.Fatalf("failed to parse vault response: %v", err)
+	}
+	if vaultResp.Status != "active" || vaultResp.ProtocolVersion != 1 {
+		t.Errorf("unexpected vault metadata: %+v", vaultResp)
+	}
+	vaultID := vaultResp.ID
+
+	// 2. Reject invalid envelopes
+	// Duplicate password envelope
+	badReq := handlers.CreateVaultRequest{
+		ProtocolVersion: 1,
+		Envelopes: []handlers.VaultKeyEnvelopeDTO{
+			sampleEnvelopes()[0],
+			sampleEnvelopes()[0],
+		},
+	}
+	recBad := doRequest(h, "POST", "/api/v1/vaults", badReq, activeCookie)
+	if recBad.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for duplicate envelope, got %d", recBad.Code)
+	}
+
+	// Password envelope with disallowed KDF parameters (parallelism 1)
+	badKdf := sampleEnvelopes()
+	badKdf[0].KDFParameters["parallelism"] = 1
+	recBadKdf := doRequest(h, "POST", "/api/v1/vaults", handlers.CreateVaultRequest{ProtocolVersion: 1, Envelopes: badKdf}, activeCookie)
+	if recBadKdf.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for non-p=4 password envelope, got %d", recBadKdf.Code)
+	}
+
+	// 3. List Vaults
+	recList := doRequest(h, "GET", "/api/v1/vaults", nil, activeCookie)
+	if recList.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for list vaults, got %d", recList.Code)
+	}
+	var listResp struct {
+		Items []handlers.VaultMetadataResponse `json:"items"`
+	}
+	_ = json.Unmarshal(recList.Body.Bytes(), &listResp)
+	if len(listResp.Items) != 1 || listResp.Items[0].ID != vaultID {
+		t.Fatalf("expected 1 vault with ID %s, got %+v", vaultID, listResp.Items)
+	}
+
+	// 4. Get Vault by ID
+	recGet := doRequest(h, "GET", "/api/v1/vaults/"+vaultID, nil, activeCookie)
+	if recGet.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for get vault, got %d", recGet.Code)
+	}
+
+	// 5. Read Key Envelopes
+	recPassEnv := doRequest(h, "GET", "/api/v1/vaults/"+vaultID+"/envelopes/password", nil, activeCookie)
+	if recPassEnv.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for password envelope, got %d", recPassEnv.Code)
+	}
+	var passEnvDTO handlers.VaultKeyEnvelopeDTO
+	_ = json.Unmarshal(recPassEnv.Body.Bytes(), &passEnvDTO)
+	if passEnvDTO.EnvelopeType != "password" || passEnvDTO.KDFAlgorithm != "argon2id13" {
+		t.Errorf("unexpected password envelope: %+v", passEnvDTO)
+	}
+
+	recRecovEnv := doRequest(h, "GET", "/api/v1/vaults/"+vaultID+"/envelopes/recovery", nil, activeCookie)
+	if recRecovEnv.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for recovery envelope, got %d", recRecovEnv.Code)
+	}
+
+	// 6. Password Change: Rewrap VEK
+	newSalt := base64.RawURLEncoding.EncodeToString(make([]byte, 16))
+	newWrapped := base64.RawURLEncoding.EncodeToString(make([]byte, 40))
+	updateEnv := handlers.VaultKeyEnvelopeDTO{
+		EnvelopeType:     "password",
+		ProtocolVersion:  1,
+		KeyWrapAlgorithm: "AES-256-KW",
+		KDFAlgorithm:     "argon2id13",
+		KDFParameters: map[string]int64{
+			"version":     19,
+			"memoryKiB":   65536,
+			"iterations":  3,
+			"parallelism": 4,
+		},
+		Salt:       newSalt,
+		WrappedVEK: newWrapped,
+	}
+	recPut := doRequest(h, "PUT", "/api/v1/vaults/"+vaultID+"/envelopes/password", updateEnv, activeCookie)
+	if recPut.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content for envelope rewrap, got %d (body: %s)", recPut.Code, recPut.Body.String())
+	}
+
+	recUpdatedPass := doRequest(h, "GET", "/api/v1/vaults/"+vaultID+"/envelopes/password", nil, activeCookie)
+	var updatedDTO handlers.VaultKeyEnvelopeDTO
+	_ = json.Unmarshal(recUpdatedPass.Body.Bytes(), &updatedDTO)
+	if updatedDTO.Salt != newSalt || updatedDTO.WrappedVEK != newWrapped {
+		t.Errorf("expected updated salt and wrappedVek, got %+v", updatedDTO)
+	}
+
+	// 7. Verify pending device cannot access vaults (403 Forbidden)
+	tokenPending, _ := auth.GenerateSessionToken()
+	pendingDev, _, err := repo.CreatePendingDeviceAndEnrollment(t.Context(), &domain.Device{
+		AccountID: "acc-0001",
+		Label:     "Pending Phone",
+		Status:    "pending",
+	}, make([]byte, 32), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("failed to create pending device: %v", err)
+	}
+
+	_ = repo.CreateSessionForDevice("acc-0001", pendingDev.ID, tokenPending, time.Now().Add(time.Hour))
+	pendingCookie := &http.Cookie{Name: auth.SessionCookieName, Value: tokenPending}
+
+	recPendingList := doRequest(h, "GET", "/api/v1/vaults", nil, pendingCookie)
+	if recPendingList.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for pending device on vaults, got %d", recPendingList.Code)
+	}
+
+	// 8. Delete Vault
+	recDel := doRequest(h, "DELETE", "/api/v1/vaults/"+vaultID, nil, activeCookie)
+	if recDel.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content for vault delete, got %d", recDel.Code)
+	}
+
+	recPostDel := doRequest(h, "GET", "/api/v1/vaults/"+vaultID, nil, activeCookie)
+	if recPostDel.Code != http.StatusNotFound {
+		t.Errorf("expected 404 Not Found after deletion, got %d", recPostDel.Code)
+	}
+}
+
+func TestVaultTenantIsolation(t *testing.T) {
+	h, _ := setupTestServer()
+
+	// Account A
+	pubA := base64.RawURLEncoding.EncodeToString([]byte("pubkey-acc-a-32bytes-for-vaults!"))
+	recA := doRequest(h, "POST", "/api/v1/auth/register", handlers.RegisterRequest{
+		Email:              "usera@example.com",
+		DeviceLabel:        "UserA Device",
+		Platform:           "Web",
+		Browser:            "Chrome",
+		PublicKeyAlgorithm: "Ed25519",
+		PublicKey:          pubA,
+		CredentialType:     "external",
+		CredentialID:       "cred-a",
+	}, nil)
+	cookieA := recA.Result().Cookies()[0]
+
+	// Account B
+	pubB := base64.RawURLEncoding.EncodeToString([]byte("pubkey-acc-b-32bytes-for-vaults!"))
+	recB := doRequest(h, "POST", "/api/v1/auth/register", handlers.RegisterRequest{
+		Email:              "userb@example.com",
+		DeviceLabel:        "UserB Device",
+		Platform:           "Web",
+		Browser:            "Firefox",
+		PublicKeyAlgorithm: "Ed25519",
+		PublicKey:          pubB,
+		CredentialType:     "external",
+		CredentialID:       "cred-b",
+	}, nil)
+	cookieB := recB.Result().Cookies()[0]
+
+	// Account A creates a vault
+	recCreateA := doRequest(h, "POST", "/api/v1/vaults", handlers.CreateVaultRequest{
+		ProtocolVersion: 1,
+		Envelopes:       sampleEnvelopes(),
+	}, cookieA)
+	var vaultA handlers.VaultMetadataResponse
+	_ = json.Unmarshal(recCreateA.Body.Bytes(), &vaultA)
+
+	// Account B attempts to read Account A's vault -> 404
+	recCrossGet := doRequest(h, "GET", "/api/v1/vaults/"+vaultA.ID, nil, cookieB)
+	if recCrossGet.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-account vault read, got %d", recCrossGet.Code)
+	}
+
+	// Account B attempts to read Account A's envelopes -> 404
+	recCrossEnv := doRequest(h, "GET", "/api/v1/vaults/"+vaultA.ID+"/envelopes/password", nil, cookieB)
+	if recCrossEnv.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-account envelope read, got %d", recCrossEnv.Code)
+	}
+
+	// Account B attempts to delete Account A's vault -> 404
+	recCrossDel := doRequest(h, "DELETE", "/api/v1/vaults/"+vaultA.ID, nil, cookieB)
+	if recCrossDel.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-account vault delete, got %d", recCrossDel.Code)
 	}
 }

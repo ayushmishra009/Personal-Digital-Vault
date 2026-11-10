@@ -344,6 +344,31 @@ paths:
           $ref: "#/components/responses/NotFound"
 
   /api/v1/vaults/{vaultId}/envelopes/{envelopeType}:
+    get:
+      tags: [Vaults]
+      operationId: getVaultKeyEnvelope
+      summary: Read a stored key envelope (password or recovery)
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/VaultId"
+        - name: envelopeType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [password, recovery]
+      responses:
+        "200":
+          description: Key envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultKeyEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
     put:
       tags: [Vaults]
       operationId: putVaultKeyEnvelope

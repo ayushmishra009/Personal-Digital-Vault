@@ -236,7 +236,8 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    get?: never;
+    /** Read a stored key envelope (password or recovery) */
+    get: operations["getVaultKeyEnvelope"];
     /**
      * Create or replace a client-generated key envelope
      * @description New password envelopes must use p=4; legacy p=1 envelopes are accepted for reading/unlock only. Body envelopeType must match the path parameter.
@@ -996,6 +997,31 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  getVaultKeyEnvelope: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        vaultId: components["parameters"]["VaultId"];
+        envelopeType: "password" | "recovery";
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Key envelope */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VaultKeyEnvelope"];
+        };
       };
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];

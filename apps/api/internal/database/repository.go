@@ -50,6 +50,19 @@ type Repository interface {
 
 	RevokeDevice(ctx context.Context, accountID string, deviceID string) error
 
+	CreateVaultWithEnvelopes(
+		ctx context.Context,
+		accountID string,
+		protocolVersion int,
+		envelopes []domain.VaultKeyEnvelope,
+	) (*domain.Vault, error)
+
+	ListVaults(ctx context.Context, accountID string) ([]domain.Vault, error)
+	GetVault(ctx context.Context, accountID string, vaultID string) (*domain.Vault, error)
+	GetVaultKeyEnvelope(ctx context.Context, accountID string, vaultID string, envelopeType string) (*domain.VaultKeyEnvelope, error)
+	PutVaultKeyEnvelope(ctx context.Context, accountID string, envelope *domain.VaultKeyEnvelope) error
+	DeleteVault(ctx context.Context, accountID string, vaultID string) error
+
 	CreateSession(ctx context.Context, session *domain.Session) error
 	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (*domain.Session, *domain.Account, *domain.Device, error)
 	RevokeSession(ctx context.Context, tokenHash []byte) error

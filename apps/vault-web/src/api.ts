@@ -169,3 +169,85 @@ export async function revokeDevice(deviceId: string): Promise<void> {
   );
   return handleResponse<void>(res);
 }
+
+export interface VaultMetadata {
+  id: string;
+  protocolVersion: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VaultKeyEnvelope {
+  envelopeType: "password" | "recovery";
+  protocolVersion: 1;
+  keyWrapAlgorithm: "AES-256-KW";
+  kdfAlgorithm: "argon2id13" | "hkdf-sha256";
+  kdfParameters: Record<string, number>;
+  salt: string;
+  wrappedVek: string;
+}
+
+export async function listVaults(): Promise<{ items: VaultMetadata[] }> {
+  const res = await fetch("/api/v1/vaults", {
+    credentials: "include",
+  });
+  return handleResponse<{ items: VaultMetadata[] }>(res);
+}
+
+export async function createVault(params: {
+  protocolVersion: number;
+  envelopes: VaultKeyEnvelope[];
+}): Promise<VaultMetadata> {
+  const res = await fetch("/api/v1/vaults", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(params),
+  });
+  return handleResponse<VaultMetadata>(res);
+}
+
+export async function getVault(vaultId: string): Promise<VaultMetadata> {
+  const res = await fetch(`/api/v1/vaults/${encodeURIComponent(vaultId)}`, {
+    credentials: "include",
+  });
+  return handleResponse<VaultMetadata>(res);
+}
+
+export async function getVaultKeyEnvelope(
+  vaultId: string,
+  envelopeType: "password" | "recovery",
+): Promise<VaultKeyEnvelope> {
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/envelopes/${encodeURIComponent(envelopeType)}`,
+    {
+      credentials: "include",
+    },
+  );
+  return handleResponse<VaultKeyEnvelope>(res);
+}
+
+export async function putVaultKeyEnvelope(
+  vaultId: string,
+  envelopeType: "password" | "recovery",
+  envelope: VaultKeyEnvelope,
+): Promise<void> {
+  const res = await fetch(
+    `/api/v1/vaults/${encodeURIComponent(vaultId)}/envelopes/${encodeURIComponent(envelopeType)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(envelope),
+    },
+  );
+  return handleResponse<void>(res);
+}
+
+export async function deleteVault(vaultId: string): Promise<void> {
+  const res = await fetch(`/api/v1/vaults/${encodeURIComponent(vaultId)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  return handleResponse<void>(res);
+}

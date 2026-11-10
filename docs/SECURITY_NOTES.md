@@ -3,9 +3,12 @@
 ## Current state
 
 - This Phase 1 foundation is not suitable for real vault data.
-- The API implements Phase 3 authentication and device enrollment with strict tenant enforcement and cryptographic session hashing. Vault endpoints remain unimplemented pending Phase 4.
+- The API implements Phase 3 authentication and device enrollment with strict tenant enforcement and cryptographic session hashing.
+- The API implements Phase 4 zero-knowledge vault lifecycle management with Argon2id p=4 parameter enforcement, envelope rewrapping, and tenant-scoped authorization.
 - The Admin frontend is a visible shell, not an authenticated panel yet.
-- Phase 2 crypto-core operations are a partial, unreviewed prototype; Argon2id is only an interface, and stream encryption is not implemented.
+- Phase 2 crypto-core operations are a prototype, **PENDING SECURITY REVIEW**; stream encryption is not yet implemented.
+- Decrypted Vault Encryption Keys (VEKs) reside strictly in volatile client memory (`CryptoKey`) during active unlock; locking clears in-memory keys immediately. Keys are never transmitted over the wire or stored in environment variables.
+- The backend stores only opaque vault IDs, timestamps, and wrapped envelopes; it never receives plaintext labels, passwords, recovery secrets, or decrypted data.
 - PostgreSQL and RustFS are development services. Compose binds their published ports to loopback and uses randomly generated local credentials in an ignored `.env`.
 - The Go domain package contains server-safe metadata and ciphertext types. TypeScript decrypted record types are client-only and must never be serialized into API requests.
 - Database tables contain no vault title, record title, URL, category, note, password, decrypted attachment, or key-material columns. Account IDs and composite foreign keys scope relational ownership; handlers must still enforce authorization and account filters when they are added.

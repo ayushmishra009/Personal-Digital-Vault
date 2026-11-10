@@ -1,7 +1,7 @@
 # Implementation status
 
-**Current phase:** Phase 4 — Vault lifecycle<br>
-**Status:** Phases 0, 1, 2, and 3 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 3 provides full account registration, login, session cookies with SHA-256 token hashing, device lifecycle (active, pending, revoked), cryptographic pairing enrollment and approval, and strict tenant isolation at the API boundary. All backend and frontend unit tests pass.
+**Current phase:** Phase 5 — Local encrypted record engine<br>
+**Status:** Phases 0, 1, 2, 3, and 4 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 4 provides complete vault lifecycle management: independent zero-knowledge vault creation, client-side VEK generation, Argon2id p=4 password envelope derivation, HKDF recovery envelope derivation, in-memory volatile key unlocking, password rewrapping with fresh salt, vault deletion, and strict tenant isolation on the backend. All backend and frontend unit tests pass.
 
 ## Repository state at start
 
@@ -51,18 +51,39 @@ The repository contained only the master build specification and Git metadata. N
 - Automated Go backend tests for registration, session expiry, device status transitions, and tenant isolation.
 - Interactive authentication and device management UI in `apps/vault-web`.
 
+## Phase 4 scope delivered
+
+- OpenAPI 3.1 contract extended with `GET /api/v1/vaults/{vaultId}/envelopes/{envelopeType}`.
+- Regenerated TypeScript API client types and verified Redocly lint.
+- Go backend HTTP handlers and repository implementation for:
+  - `POST /api/v1/vaults`: Atomic creation of vault and its two initial key envelopes (`password` and `recovery`). Validates that `password` envelope strictly adheres to Argon2id p=4 parameters (p=4, m=65536 KiB, t=3).
+  - `GET /api/v1/vaults`: Lists user's vaults scoped strictly by authenticated account ID.
+  - `GET /api/v1/vaults/{vaultId}`: Retrieves vault metadata.
+  - `GET /api/v1/vaults/{vaultId}/envelopes/{envelopeType}`: Retrieves specific envelope (`password` or `recovery`).
+  - `PUT /api/v1/vaults/{vaultId}/envelopes/{envelopeType}`: Password change flow rewrapping VEK; validates p=4 parameters.
+  - `DELETE /api/v1/vaults/{vaultId}`: Deletes vault and cascades deletion to all envelopes.
+  - Tenant boundary isolation: All endpoints reject access from non-owner accounts (404 Not Found) or pending devices (403 Forbidden).
+- Client implementation in `apps/vault-web`:
+  - Browser/Node-compatible Argon2id WASM adapter running proposed p=4 KDF.
+  - Interactive Vault Management UI supporting creation, listing, unlocking with password or recovery secret, locking (clearing memory key), changing password, and deleting vault.
+  - Prominent loss limitation warning for the 256-bit recovery secret.
+- Automated tests:
+  - Go API tests in `internal/router/router_test.go` (`TestVaultLifecycle`, `TestVaultTenantIsolation`).
+  - Vitest test in `apps/vault-web/src/vault.test.ts` validating envelope creation, password unlock, recovery unlock, password change, and wrong-password rejection.
+
 ## Not implemented
 
-Vault key generation (VEK/DEK lifecycle in application flow), local IndexedDB encrypted record engine, CMS features, streaming attachments, sync processing, and production deployment are not implemented.
+Local IndexedDB encrypted record engine (Phase 5), CMS features (Phase 6), sync engine, streaming attachments, and production deployment are not implemented.
 
 ## Verification
 
-- `npx turbo run build test` passed across all workspace packages and apps.
-- `npx prettier --check .` and `npx eslint .` passed.
+- `npx turbo run build test` passed across all workspace packages and apps (9/9 tasks successful).
+- `npx prettier --write .` and `npx eslint .` passed with 0 errors.
 - Redocly lint passed with 0 errors.
 - Go backend unit tests (`internal/auth` and `internal/router`) passed 100%.
+- Client vault lifecycle vitest tests passed 100%.
 - TypeScript packages and apps typecheck cleanly with 0 errors.
 
 ## Next phase
 
-Phase 4 — Vault lifecycle: Independent vault creation, VEK generation, password envelope, recovery envelope, lock/unlock mechanics, password change by rewrapping VEK, and local encrypted vault metadata.
+Phase 5 — Local encrypted record engine: Dexie/IndexedDB schema, client-side encryption of records and indexes using DEK wrapped by VEK, CRUD operations on records, and local change queuing.

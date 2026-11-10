@@ -53,6 +53,25 @@ These are planned checks. Phase 1's implementation pass did not add or run autom
 
 All Phase 3 verification targets pass in Go backend test suite (`apps/api/internal/router` and `apps/api/internal/auth`).
 
+## Phase 4 vault lifecycle verification targets
+
+- Verify `POST /api/v1/vaults` requires both `password` and `recovery` envelopes and enforces Argon2id p=4 parameters (p=4, m=65536 KiB, t=3).
+- Verify duplicate envelopes in vault creation fail with 422 Unprocessable Entity.
+- Verify `GET /api/v1/vaults` lists only vaults owned by the authenticated account.
+- Verify cross-account tenant isolation: Account A cannot view, retrieve envelopes from, modify, or delete Account B's vaults (returns 404 Not Found).
+- Verify `GET /api/v1/vaults/{vaultId}/envelopes/{envelopeType}` returns specific envelope and rejects invalid envelope types with 422.
+- Verify `PUT /api/v1/vaults/{vaultId}/envelopes/password` updates the password envelope with new p=4 parameters and salt (204 No Content), without affecting the recovery envelope.
+- Verify `DELETE /api/v1/vaults/{vaultId}` cascades deletion to key envelopes and subsequent lookups return 404 Not Found.
+- Verify pending devices receive 403 Forbidden on all vault operational endpoints.
+- Client verification in `apps/vault-web`:
+  - Verify client generates 256-bit VEK and creates valid Argon2id p=4 and HKDF recovery envelopes.
+  - Verify correct password unwraps VEK into `CryptoKey`.
+  - Verify recovery secret unwraps VEK into `CryptoKey`.
+  - Verify invalid password fails closed and throws error.
+  - Verify password change re-wraps VEK with fresh salt and unlocks with new password while old password fails.
+
+All Phase 4 verification targets pass in Go backend test suite (`apps/api/internal/router`) and frontend Vitest suite (`apps/vault-web/src/vault.test.ts`).
+
 ## Later security and product coverage
 
 Follow the master specification's crypto known-answer and negative tests, backend authorization/tenant isolation tests, offline/conflict tests, CMS schema/revision tests, attachment ciphertext checks, extension origin-boundary tests, and end-to-end flows. Round-trip crypto tests alone are insufficient. Do not use production data in tests.

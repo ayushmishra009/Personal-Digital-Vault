@@ -14,24 +14,28 @@ import (
 )
 
 type MockRepository struct {
-	mu          sync.RWMutex
-	accounts    map[string]*domain.Account
-	byEmail     map[string]string // email -> accountID
-	credentials map[string]*domain.AuthCredential // accountID:credentialID -> cred
-	devices     map[string]*domain.Device // accountID:deviceID -> dev
-	enrollments map[string]*domain.DeviceEnrollment // accountID:enrollmentID -> enrollment
-	sessions    map[string]*domain.Session // hex(tokenHash) -> session
-	seq         int
+	mu             sync.RWMutex
+	accounts       map[string]*domain.Account
+	byEmail        map[string]string // email -> accountID
+	credentials    map[string]*domain.AuthCredential // accountID:credentialID -> cred
+	devices        map[string]*domain.Device // accountID:deviceID -> dev
+	enrollments    map[string]*domain.DeviceEnrollment // accountID:enrollmentID -> enrollment
+	sessions       map[string]*domain.Session // hex(tokenHash) -> session
+	vaults         map[string]*domain.Vault // accountID:vaultID -> vault
+	vaultEnvelopes map[string]*domain.VaultKeyEnvelope // accountID:vaultID:type -> env
+	seq            int
 }
 
 func NewMockRepository() *MockRepository {
 	return &MockRepository{
-		accounts:    make(map[string]*domain.Account),
-		byEmail:     make(map[string]string),
-		credentials: make(map[string]*domain.AuthCredential),
-		devices:     make(map[string]*domain.Device),
-		enrollments: make(map[string]*domain.DeviceEnrollment),
-		sessions:    make(map[string]*domain.Session),
+		accounts:       make(map[string]*domain.Account),
+		byEmail:        make(map[string]string),
+		credentials:    make(map[string]*domain.AuthCredential),
+		devices:        make(map[string]*domain.Device),
+		enrollments:    make(map[string]*domain.DeviceEnrollment),
+		sessions:       make(map[string]*domain.Session),
+		vaults:         make(map[string]*domain.Vault),
+		vaultEnvelopes: make(map[string]*domain.VaultKeyEnvelope),
 	}
 }
 
@@ -351,5 +355,124 @@ func (m *MockRepository) RevokeSessionsByDevice(ctx context.Context, accountID s
 			delete(m.sessions, k)
 		}
 	}
+	return nil
+}
+
+func (m *MockRepository) CreateVaultWithEnvelopes(
+	ctx context.Context,
+	accountID string,
+	protocolVersion int,
+	envelopes []domain.VaultKeyEnvelope,
+) (*domain.Vault, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now().UTC()
+	vaultID := m.nextID("vault")
+	v := &domain.Vault{
+		ID:              vaultID,
+		AccountID:       accountID,
+		ProtocolVersion: protocolVersion,
+		Status:          "active",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	m.vaults[accountID+":"+vaultID] = v
+
+	for _, env := range envelopes {
+		stored := env
+		stored.VaultID = vaultID
+		stored.AccountID = accountID
+		stored.CreatedAt = now
+		stored.UpdatedAt = now
+		m.vaultEnvelopes[accountID+":"+vaultID+":"+env.EnvelopeType] = &stored
+	}
+
+	return v, nil
+}
+
+func (m *MockRepository) ListVaults(ctx context.Context, accountID string) ([]domain.Vault, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var list []domain.Vault
+	for k, v := range m.vaults {
+		if strings.HasPrefix(k, accountID+":") && v.Status == "active" {
+			list = append(list, *v)
+		}
+	}
+	return list, nil
+}
+
+func (m *MockRepository) GetVault(ctx context.Context, accountID string, vaultID string) (*domain.Vault, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	v, ok := m.vaults[accountID+":"+vaultID]
+	if !ok || v.Status != "active" {
+		return nil, ErrNotFound
+	}
+	return v, nil
+}
+
+func (m *MockRepository) GetVaultKeyEnvelope(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	envelopeType string,
+) (*domain.VaultKeyEnvelope, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	v, ok := m.vaults[accountID+":"+vaultID]
+	if !ok || v.Status != "active" {
+		return nil, ErrNotFound
+	}
+
+	env, ok := m.vaultEnvelopes[accountID+":"+vaultID+":"+envelopeType]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return env, nil
+}
+
+func (m *MockRepository) PutVaultKeyEnvelope(
+	ctx context.Context,
+	accountID string,
+	envelope *domain.VaultKeyEnvelope,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	v, ok := m.vaults[accountID+":"+envelope.VaultID]
+	if !ok || v.Status != "active" {
+		return ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	stored := *envelope
+	stored.AccountID = accountID
+	stored.UpdatedAt = now
+	if existing, exists := m.vaultEnvelopes[accountID+":"+envelope.VaultID+":"+envelope.EnvelopeType]; exists {
+		stored.CreatedAt = existing.CreatedAt
+	} else {
+		stored.CreatedAt = now
+	}
+	m.vaultEnvelopes[accountID+":"+envelope.VaultID+":"+envelope.EnvelopeType] = &stored
+	return nil
+}
+
+func (m *MockRepository) DeleteVault(ctx context.Context, accountID string, vaultID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	v, ok := m.vaults[accountID+":"+vaultID]
+	if !ok || v.Status != "active" {
+		return ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	v.Status = "deleted"
+	v.DeletedAt = &now
 	return nil
 }

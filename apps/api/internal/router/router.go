@@ -56,5 +56,13 @@ func BuildRouter(cfg Config) http.Handler {
 	mux.Handle("POST /api/v1/device-enrollments/{enrollmentId}/approve", requireActiveSession(handlers.ApproveDeviceEnrollmentHandler(cfg.Repo)))
 	mux.Handle("POST /api/v1/devices/{deviceId}/revoke", requireActiveSession(handlers.RevokeDeviceHandler(cfg.Repo)))
 
+	// Vault routes (strictly require an active device)
+	mux.Handle("GET /api/v1/vaults", requireActiveSession(handlers.ListVaultsHandler(cfg.Repo)))
+	mux.Handle("POST /api/v1/vaults", requireActiveSession(handlers.CreateVaultHandler(cfg.Repo)))
+	mux.Handle("GET /api/v1/vaults/{vaultId}", requireActiveSession(handlers.GetVaultHandler(cfg.Repo)))
+	mux.Handle("DELETE /api/v1/vaults/{vaultId}", requireActiveSession(handlers.DeleteVaultHandler(cfg.Repo)))
+	mux.Handle("GET /api/v1/vaults/{vaultId}/envelopes/{envelopeType}", requireActiveSession(handlers.GetVaultKeyEnvelopeHandler(cfg.Repo)))
+	mux.Handle("PUT /api/v1/vaults/{vaultId}/envelopes/{envelopeType}", requireActiveSession(handlers.PutVaultKeyEnvelopeHandler(cfg.Repo)))
+
 	return middleware.Cors(cfg.AllowedOrigins)(mux)
 }

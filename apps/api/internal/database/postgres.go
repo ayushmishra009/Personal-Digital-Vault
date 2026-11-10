@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -596,4 +597,309 @@ func (r *PostgresRepository) RevokeSessionsByDevice(ctx context.Context, account
 		deviceID,
 	)
 	return err
+}
+
+func (r *PostgresRepository) CreateVaultWithEnvelopes(
+	ctx context.Context,
+	accountID string,
+	protocolVersion int,
+	envelopes []domain.VaultKeyEnvelope,
+) (*domain.Vault, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	v := &domain.Vault{
+		AccountID:       accountID,
+		ProtocolVersion: protocolVersion,
+		Status:          "active",
+	}
+
+	err = tx.QueryRowContext(
+		ctx,
+		`INSERT INTO vaults (account_id, protocol_version, status)
+		 VALUES ($1, $2, 'active')
+		 RETURNING id, created_at, updated_at`,
+		accountID,
+		protocolVersion,
+	).Scan(&v.ID, &v.CreatedAt, &v.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, env := range envelopes {
+		paramsJSON, err := json.Marshal(env.KDFParameters)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = tx.ExecContext(
+			ctx,
+			`INSERT INTO vault_key_envelopes (
+				account_id, vault_id, envelope_type, protocol_version,
+				key_wrap_algorithm, kdf_algorithm, kdf_parameters, salt, wrapped_vek
+			 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			accountID,
+			v.ID,
+			env.EnvelopeType,
+			env.ProtocolVersion,
+			env.KeyWrapAlgorithm,
+			env.KDFAlgorithm,
+			paramsJSON,
+			env.Salt,
+			env.WrappedVEK,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	_, err = tx.ExecContext(
+		ctx,
+		`INSERT INTO audit_events (account_id, event_type, resource_id)
+		 VALUES ($1, 'vault_created', $2)`,
+		accountID,
+		v.ID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return v, nil
+}
+
+func (r *PostgresRepository) ListVaults(ctx context.Context, accountID string) ([]domain.Vault, error) {
+	rows, err := r.db.QueryContext(
+		ctx,
+		`SELECT id, account_id, protocol_version, status, created_at, updated_at, deleted_at
+		 FROM vaults
+		 WHERE account_id = $1 AND status = 'active'
+		 ORDER BY created_at DESC`,
+		accountID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []domain.Vault
+	for rows.Next() {
+		var v domain.Vault
+		if err := rows.Scan(
+			&v.ID,
+			&v.AccountID,
+			&v.ProtocolVersion,
+			&v.Status,
+			&v.CreatedAt,
+			&v.UpdatedAt,
+			&v.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		list = append(list, v)
+	}
+	return list, rows.Err()
+}
+
+func (r *PostgresRepository) GetVault(ctx context.Context, accountID string, vaultID string) (*domain.Vault, error) {
+	v := &domain.Vault{}
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT id, account_id, protocol_version, status, created_at, updated_at, deleted_at
+		 FROM vaults
+		 WHERE account_id = $1 AND id = $2 AND status = 'active'`,
+		accountID,
+		vaultID,
+	).Scan(
+		&v.ID,
+		&v.AccountID,
+		&v.ProtocolVersion,
+		&v.Status,
+		&v.CreatedAt,
+		&v.UpdatedAt,
+		&v.DeletedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return v, nil
+}
+
+func (r *PostgresRepository) GetVaultKeyEnvelope(
+	ctx context.Context,
+	accountID string,
+	vaultID string,
+	envelopeType string,
+) (*domain.VaultKeyEnvelope, error) {
+	env := &domain.VaultKeyEnvelope{}
+	var paramsJSON []byte
+
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT vault_id, account_id, envelope_type, protocol_version,
+		        key_wrap_algorithm, kdf_algorithm, kdf_parameters, salt, wrapped_vek,
+		        created_at, updated_at
+		 FROM vault_key_envelopes
+		 WHERE account_id = $1 AND vault_id = $2 AND envelope_type = $3`,
+		accountID,
+		vaultID,
+		envelopeType,
+	).Scan(
+		&env.VaultID,
+		&env.AccountID,
+		&env.EnvelopeType,
+		&env.ProtocolVersion,
+		&env.KeyWrapAlgorithm,
+		&env.KDFAlgorithm,
+		&paramsJSON,
+		&env.Salt,
+		&env.WrappedVEK,
+		&env.CreatedAt,
+		&env.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if len(paramsJSON) > 0 {
+		_ = json.Unmarshal(paramsJSON, &env.KDFParameters)
+	}
+	if env.KDFParameters == nil {
+		env.KDFParameters = make(map[string]int64)
+	}
+
+	return env, nil
+}
+
+func (r *PostgresRepository) PutVaultKeyEnvelope(
+	ctx context.Context,
+	accountID string,
+	envelope *domain.VaultKeyEnvelope,
+) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var status string
+	err = tx.QueryRowContext(
+		ctx,
+		`SELECT status FROM vaults WHERE account_id = $1 AND id = $2 AND status = 'active' FOR UPDATE`,
+		accountID,
+		envelope.VaultID,
+	).Scan(&status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	paramsJSON, err := json.Marshal(envelope.KDFParameters)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	_, err = tx.ExecContext(
+		ctx,
+		`INSERT INTO vault_key_envelopes (
+			account_id, vault_id, envelope_type, protocol_version,
+			key_wrap_algorithm, kdf_algorithm, kdf_parameters, salt, wrapped_vek, updated_at
+		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		 ON CONFLICT (account_id, vault_id, envelope_type) DO UPDATE
+		 SET protocol_version = EXCLUDED.protocol_version,
+		     key_wrap_algorithm = EXCLUDED.key_wrap_algorithm,
+		     kdf_algorithm = EXCLUDED.kdf_algorithm,
+		     kdf_parameters = EXCLUDED.kdf_parameters,
+		     salt = EXCLUDED.salt,
+		     wrapped_vek = EXCLUDED.wrapped_vek,
+		     updated_at = EXCLUDED.updated_at`,
+		accountID,
+		envelope.VaultID,
+		envelope.EnvelopeType,
+		envelope.ProtocolVersion,
+		envelope.KeyWrapAlgorithm,
+		envelope.KDFAlgorithm,
+		paramsJSON,
+		envelope.Salt,
+		envelope.WrappedVEK,
+		now,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(
+		ctx,
+		`INSERT INTO audit_events (account_id, event_type, resource_id)
+		 VALUES ($1, 'key_envelope_changed', $2)`,
+		accountID,
+		envelope.VaultID,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *PostgresRepository) DeleteVault(ctx context.Context, accountID string, vaultID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var status string
+	err = tx.QueryRowContext(
+		ctx,
+		`SELECT status FROM vaults WHERE account_id = $1 AND id = $2 AND status = 'active' FOR UPDATE`,
+		accountID,
+		vaultID,
+	).Scan(&status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	now := time.Now()
+	_, err = tx.ExecContext(
+		ctx,
+		`UPDATE vaults SET status = 'deleted', deleted_at = $1 WHERE account_id = $2 AND id = $3`,
+		now,
+		accountID,
+		vaultID,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(
+		ctx,
+		`INSERT INTO audit_events (account_id, event_type, resource_id)
+		 VALUES ($1, 'vault_deleted', $2)`,
+		accountID,
+		vaultID,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
