@@ -111,6 +111,48 @@ All Phase 5 verification targets pass in `apps/vault-web/src/storage/storage.tes
 
 All Phase 6 verification targets pass in `apps/api/internal/router` (`TestCmsEndpointsAndSeeding`, `TestCmsTenantIsolation`) and `apps/vault-web/src/components/CmsSectionRenderer.test.tsx`.
 
+## Phase 7 main web application verification targets
+
+- Verify application navbar (`AppNavbar`) renders active vault selector, locked/unlocked state badges, search bar, generator button, and auto-lock countdown timer.
+- Verify sidebar navigation (`AppSidebar`) reflects record counts for passwords, notes, identities, payments, and documents.
+- Verify `DashboardView` renders dynamic CMS sections via `CmsSectionRenderer`, security parameter badges, summary metrics, and recent record cards.
+- Verify `PasswordsView`:
+  - Renders password records with username, domain, and tag badges.
+  - Masks password values by default with an interactive reveal toggle.
+  - Displays empty state prompt when no password records exist.
+- Verify `NotesView`:
+  - Renders master-detail split layout with preview list and reading pane.
+  - Safely renders markdown-formatted content without script execution.
+  - Displays character and word count statistics.
+- Verify `IdentitiesView`:
+  - Renders structured cards for passports, driver's licenses, national IDs, and SSNs.
+  - Masks sensitive document numbers with toggle reveal.
+  - Displays issuing country and expiration dates.
+- Verify `PaymentsView`:
+  - Renders virtual credit card mockup with automatic brand identification (Visa, Mastercard, Amex, Discover).
+  - Masks card numbers and CVV codes with toggle reveal.
+  - Formats expiration dates (MM/YYYY) and displays cardholder name and billing address.
+- Verify `DocumentsView`:
+  - Renders document metadata cards with MIME type indicators and tags.
+  - Displays streaming encryption notice for Phase 9 integration.
+- Verify `SettingsView`:
+  - Displays account profile information (email, device ID, created date).
+  - Allows selecting auto-lock timeout duration (5m, 15m, 30m, 60m).
+  - Allows applying theme preset tokens (Default, Emerald, Midnight, Nordic, Slate) updating CSS custom properties.
+  - Provides local cache inspection and clearing.
+- Verify `DevicesView`:
+  - Lists active and pending devices.
+  - Triggers enrollment challenge creation and displays pairing challenge modal.
+  - Prompts for enrollment approval and calls API approval endpoint with challenge signature.
+  - Revokes devices on user confirmation.
+- Verify `RecoveryView`:
+  - Runs in-memory recovery secret validation test against active vault recovery envelope.
+  - Exports encrypted JSON backup archive.
+  - Imports and verifies encrypted backup package.
+- Verify comprehensive Vitest test coverage:
+  - 10 automated tests in `apps/vault-web/src/components/views.test.tsx` verifying view rendering, masking, and empty states.
+  - All 20 Vitest tests pass in `apps/vault-web`.
+
 ## Later security and product coverage
 
 Follow the master specification's crypto known-answer and negative tests, backend authorization/tenant isolation tests, offline/conflict tests, CMS schema/revision tests, attachment ciphertext checks, extension origin-boundary tests, and end-to-end flows. Round-trip crypto tests alone are insufficient. Do not use production data in tests.

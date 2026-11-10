@@ -1,7 +1,7 @@
 # Implementation status
 
-**Current phase:** Phase 6 complete; ready for Phase 7 (Security Hardening / Pre-Sync Architecture)<br>
-**Status:** Phases 0, 1, 2, 3, 4, 5, and 6 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 6 delivers a complete tenant-isolated CMS and administrative foundation: schema migration, Go backend endpoints with automatic seed generation and audit trail versioning, a full protected Admin web application (`apps/admin-web`), and a declarative trusted component registry in `apps/vault-web`. All backend and frontend unit tests pass.
+**Current phase:** Phase 7 complete; ready for Phase 8 (Backend Sync Engine & Conflict Resolution)<br>
+**Status:** Phases 0, 1, 2, 3, 4, 5, 6, and 7 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 7 delivers the complete primary web vault application (`apps/vault-web`) with an application shell, responsive navigation, categorized views (Passwords, Notes, Identities, Payments, Documents), vault lifecycle management with Argon2id p=4 derivation and 256-bit offline recovery secrets, device pairing and authorization, recovery secret verification and encrypted JSON archive export/import, settings with theme presets and auto-lock controls, and full test suites with 20 Vitest tests passing.
 
 ## Repository state at start
 
@@ -125,19 +125,53 @@ The repository contained only the master build specification and Git metadata. N
   - Go API tests in `internal/router/router_test.go` (`TestCmsEndpointsAndSeeding`, `TestCmsTenantIsolation`).
   - Vitest tests in `apps/vault-web/src/components/CmsSectionRenderer.test.tsx` (5/5 tests passing).
 
+## Phase 7 scope delivered
+
+- Modular primary web application shell (`apps/vault-web`):
+  - Sticky navigation bar (`AppNavbar`) with vault selector dropdown, lock/unlock actions, global quick-search across decrypted records, password generator launcher, auto-lock countdown badge, and user session badge.
+  - Collapsible responsive sidebar (`AppSidebar`) with category count badges (Passwords, Notes, Identities, Payments, Documents) and active route highlighting.
+  - Dynamic Dashboard (`DashboardView`) rendering declarative CMS sections via `CmsSectionRenderer`, summary statistics cards, vault security status indicators, and recent records preview.
+- Specialized Record Views:
+  - `PasswordsView`: Search filter, tag filtering pills, masked passwords with toggle reveal, 30s auto-clearing clipboard copy, URL launcher with `rel="noopener noreferrer"`.
+  - `NotesView`: Master-detail split layout, word & character counters, safe markdown rendering without raw HTML execution, tag management.
+  - `IdentitiesView`: Structured identity document cards (Passports, Driver's Licenses, National IDs, Social Security Numbers), masked document numbers with toggle reveal, issuing authority and expiry badges.
+  - `PaymentsView`: Visual virtual card layout with automatic card brand detection (Visa, Mastercard, Amex, Discover), masked card numbers, CVV reveal, expiry date badges, and billing address.
+  - `DocumentsView`: Encrypted file metadata, MIME type identification, tags, and Phase 9 streaming encryption placeholder notices.
+- Vault Lifecycle Modals:
+  - `CreateVaultModal`: Master password confirmation, live entropy calculation and strength bar, Argon2id p=4 derivation, and prominent 256-bit offline recovery secret presentation with loss acknowledgement.
+  - `UnlockVaultModal`: Unlocking via master password or offline recovery secret with immediate zeroization on failure.
+  - `ChangePasswordModal`: Verification of current password, Argon2id rewrapping of the same VEK with fresh salt, preserving recovery envelope and all encrypted records.
+  - `PasswordGeneratorModal`: CSPRNG generator with configurable length (8-64), character sets (uppercase, lowercase, digits, symbols), ambiguous character exclusion, and copy action.
+  - `RecordModal`: Polymorphic record editor validating required fields per record type.
+- Device Management UI (`DevicesView`):
+  - Active and pending device inventory with last seen timestamps.
+  - Cryptographic challenge generation for new device enrollment (`POST /api/v1/devices/enrollments`).
+  - Active device cryptographic enrollment approval (`POST /api/v1/devices/enrollments/{id}/approve`).
+  - Device revocation (`DELETE /api/v1/devices/{id}`).
+- Recovery & Backup Management (`RecoveryView`):
+  - In-memory offline recovery secret verification test (verifies decryptability of recovery envelope without persisting).
+  - Encrypted JSON archive export (AES-256-GCM encrypted backup package) and backup import restoring local IndexedDB store.
+- Settings & Theme Design Tokens (`SettingsView`):
+  - Account profile summary with device ID and registration date.
+  - Configurable inactivity auto-lock timeout selector (5m, 15m, 30m, 60m).
+  - Theme preset tokens (Default, Emerald, Midnight, Nordic, Slate) applying CSS variables dynamically.
+  - Local IndexedDB storage inspection and cache clearing.
+- Comprehensive Automated Test Suite:
+  - `apps/vault-web/src/components/views.test.tsx`: 10 comprehensive Vitest tests verifying rendering of all views, masked data, and empty states.
+  - Total 20 Vitest tests passing in `apps/vault-web`.
+
 ## Not implemented
 
-Backend sync engine and conflict resolution (Phase 8), streaming attachments (Phase 9), backup/restore archives (Phase 10), and Chrome extension (Phase 11) are not implemented.
+Backend sync engine and conflict resolution (Phase 8), streaming attachments (Phase 9), remote backup/restore archives (Phase 10), and Chrome extension (Phase 11) are not implemented.
 
 ## Verification
 
 - `npx turbo run build test` passed across all workspace packages and apps (9/9 tasks successful).
-- `npx prettier --write .` and `npx eslint .` passed with 0 errors.
-- Redocly lint passed with 0 errors.
+- `npx prettier --write apps/vault-web/` and `npx eslint .` passed with 0 errors.
 - Go backend unit tests (`internal/auth` and `internal/router`) passed 100%.
-- Client vault and storage vitest tests passed 100% (10/10 tests passing in `vault-web`).
+- Client vault, storage, and view vitest tests passed 100% (20/20 tests passing in `vault-web`).
 - TypeScript packages and apps typecheck cleanly with 0 errors.
 
 ## Next phase
 
-Phase 7 / Phase 8 — Backend Sync Engine & Conflict Resolution: Delta sync endpoints, client sync queue processing, tombstone handling, and conflict resolution rules.
+Phase 8 — Backend Sync Engine & Conflict Resolution: Delta sync endpoints (`POST /api/v1/vaults/{vaultId}/sync`), client sync queue processor draining `pending_operations`, server monotonic revision sequencing, server clock vectors, and `409 Conflict` resolution rules.

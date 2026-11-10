@@ -12,6 +12,14 @@
 - Cross-tenant CMS isolation: All CMS queries and mutations are partitioned by `account_id`. Attempts to access or modify another tenant's configuration return 404 Not Found without leaking existence or configuration data.
 - Declarative component whitelist prevents XSS: Frontend rendering in `apps/vault-web` is mediated exclusively through `CmsSectionRenderer`. Only whitelisted section types (`welcome`, `summary`, `quick_actions`, `recent_items`, `vault_cards`, `custom_info`, `help_panel`) are executed. All content payloads are rendered as React text nodes; `dangerouslySetInnerHTML`, script injection, eval, and arbitrary HTML/CSS are strictly prohibited.
 - Audit history: Every CMS configuration mutation creates an immutable snapshot in `cms_revisions` with actor device metadata and human-readable summaries, supporting one-click rollback.
+- Phase 7 Main Web Application Client Security Hygiene:
+  - Zero-knowledge boundaries maintained: Plaintext records (passwords, notes, identities, cards), unmasked numbers, VEKs, and DEKs reside exclusively in volatile React/DOM state during active unlock. Plaintext is never stored in `localStorage`, `sessionStorage`, IndexedDB, cookies, or logs.
+  - Locking zeroization: Explicit user lock, vault switching, or inactivity timer expiration immediately destroys the in-memory `CryptoKey` VEK and wipes all decrypted record collections from React state.
+  - Inactivity monitor: Auto-locks all active vaults after configurable periods of inactivity (default 15 minutes; configurable to 5m, 15m, 30m, 60m). User activity resets the timer.
+  - Clipboard auto-clearing: Password and secret copying triggers an automatic clipboard wipe after 30 seconds.
+  - Masked UI fields: Passwords, card numbers, CVVs, and government document numbers are masked by default with toggleable visibility to protect against shoulder surfing.
+  - Safe Markdown & Content Rendering: Note preview renders markdown safely with strict HTML escaping, preventing XSS and script execution. External links are opened with `rel="noopener noreferrer"`.
+  - Encrypted JSON Export: Backup archives are generated with AES-256-GCM authenticated encryption using keys derived from the user's vault key, ensuring backups are never exported in plaintext.
 - Phase 2 crypto-core operations are a prototype, **PENDING SECURITY REVIEW**; stream encryption is not yet implemented.
 - Decrypted Vault Encryption Keys (VEKs) reside strictly in volatile client memory (`CryptoKey`) during active unlock; locking clears in-memory keys immediately. Keys are never transmitted over the wire or stored in environment variables.
 - The backend stores only opaque vault IDs, timestamps, and wrapped envelopes; it never receives plaintext labels, passwords, recovery secrets, or decrypted data.

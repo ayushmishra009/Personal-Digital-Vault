@@ -10,7 +10,11 @@ import type {
   SyncOperation,
 } from "@pdv/data-models";
 import { DecryptedRecordSchema } from "@pdv/validation";
-import { getLocalDatabase, type LocalDatabase } from "./db";
+import {
+  getLocalDatabase,
+  type LocalDatabase,
+  type StoredEncryptedRecord,
+} from "./db";
 
 export interface SaveRecordResult {
   envelope: EncryptedObjectEnvelope;
@@ -154,6 +158,27 @@ export class EncryptedRecordRepository {
    */
   async listPendingOperations(vaultId?: string): Promise<SyncOperation[]> {
     return this.db.listPendingOperations(vaultId);
+  }
+
+  /**
+   * List raw encrypted records from database (for encrypted backup).
+   */
+  async listStoredRecords(vaultId: string): Promise<StoredEncryptedRecord[]> {
+    return this.db.listRecordsByVault(vaultId);
+  }
+
+  /**
+   * Put raw encrypted record into database (for encrypted restore).
+   */
+  async putRawStoredRecord(record: StoredEncryptedRecord): Promise<void> {
+    return this.db.putRecord(record);
+  }
+
+  /**
+   * Clear all local stores.
+   */
+  async clear(): Promise<void> {
+    return this.db.clear();
   }
 }
 

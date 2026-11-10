@@ -84,3 +84,35 @@ Reference: [RustFS 1.0.4 release](https://github.com/rustfs/rustfs/releases) and
 5. **Zero-Knowledge Isolation:** The CMS manages presentation, navigation, and theme tokens only. Plaintext vault records, encryption keys (VEKs/DEKs), passwords, and attachments are strictly isolated from the CMS and backend.<br>
 **Reason:** Fulfills Section 7, Section 13, and Section 14 requirements of the Master Build Spec. Delivers dynamic application configuration, administrative control, and audit trail versioning while rigorously enforcing zero-knowledge boundaries and XSS immunity.
 
+## ADR-0014: Phase 7 Main Web Application Architecture and Client Security Controls
+
+**Status:** Accepted for Phase 7<br>
+**Decision:** Implement the primary web vault application (`apps/vault-web`) with comprehensive modular views, client-side zero-knowledge security hygiene, and reactive state management:
+1. **Application Shell & Navigation:** Responsive layout with sticky top navbar (`AppNavbar`), vault selector, global quick-search across decrypted records, password generator launcher, and auto-lock badge. Collapsible sidebar (`AppSidebar`) with category count badges (Passwords, Notes, Identities, Payments, Documents) and alert indicators.
+2. **Specialized Record Category Views:**
+   - **PasswordsView:** Filterable list, masked passwords, 30s auto-clearing clipboard copy, reveal/hide toggle, launch URL in new tab with `rel="noopener noreferrer"`.
+   - **NotesView:** Master-detail split layout, word & character counters, safe markdown rendering without arbitrary HTML or scripts.
+   - **IdentitiesView:** Structured identity document cards (Passports, Driver's Licenses, SSN, National IDs), masked document numbers with reveal toggle, issuing authority and expiry badges.
+   - **PaymentsView:** Visual credit/debit card mockup with real-time brand detection (Visa, Mastercard, Amex, Discover), masked card numbers, CVV reveal, and expiry dates.
+   - **DocumentsView:** Encrypted file metadata, MIME type identification, tags, and Phase 9 streaming encryption placeholder notices.
+3. **Vault Lifecycle Modals:**
+   - **CreateVaultModal:** Master password confirmation, live entropy estimation bar (bits, classification), Argon2id p=4 derivation, and prominent 256-bit offline recovery secret presentation with loss acknowledgement.
+   - **UnlockVaultModal:** Unlocking via master password or offline recovery secret with immediate zeroization on failure.
+   - **ChangePasswordModal:** Verification of current password, Argon2id rewrapping of the same VEK with fresh salt, preserving recovery envelope and all encrypted records.
+   - **PasswordGeneratorModal:** CSPRNG generator with configurable length (8-64), character sets (uppercase, lowercase, digits, symbols), ambiguous character exclusion, and copy action.
+   - **RecordModal:** Polymorphic record editor validating required fields per record type.
+4. **Device Management & Pairing UI (`DevicesView`):**
+   - Active and pending device inventory with last seen timestamps.
+   - Cryptographic challenge generation for new device enrollment (`POST /api/v1/devices/enrollments`).
+   - Active device cryptographic enrollment approval (`POST /api/v1/devices/enrollments/{id}/approve`).
+   - Device revocation (`DELETE /api/v1/devices/{id}`).
+5. **Recovery & Backup Management (`RecoveryView`):**
+   - In-memory offline recovery secret verification test (verifies decryptability of recovery envelope without persisting).
+   - Encrypted JSON archive export (AES-256-GCM encrypted backup package) and backup import restoring local IndexedDB store.
+6. **Client Security Hygiene & Inactivity Locking:**
+   - Plaintext records and decrypted VEKs are held exclusively in volatile React/DOM memory; never logged, never cached in `localStorage` or `sessionStorage`, and never sent over the network.
+   - Configurable inactivity monitor (5m, 15m, 30m, 60m) automatically locks all vaults and wipes in-memory VEKs upon expiration.
+   - Secure clipboard manager clears copied sensitive data after 30 seconds.
+   - Safe CSS design tokens for customizable theme accents.<br>
+**Reason:** Fulfills Section 5, Section 6, Section 8, Section 10, and Section 14 requirements of the Master Build Spec. Delivers an accessible, zero-knowledge, and production-grade primary web interface.
+
