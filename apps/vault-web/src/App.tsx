@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useTransition } from "react";
+import React, { useEffect, useMemo, useState, useTransition } from "react";
 import {
   AccountSession,
   Device,
@@ -23,6 +23,23 @@ import {
   unlockWithRecovery,
   changePassword,
 } from "./crypto";
+import {
+  EncryptedRecordRepository,
+  searchDecryptedRecords,
+} from "./storage/record-repository";
+import {
+  generatePassword,
+  estimatePasswordStrength,
+} from "./storage/password-generator";
+import { copyToClipboardWithAutoClear } from "./storage/clipboard";
+import { setupInactivityTracker } from "./storage/inactivity";
+import type {
+  DecryptedRecord,
+  PasswordRecord,
+  SecureNoteRecord,
+  IdentityRecord,
+  PaymentRecord,
+} from "@pdv/data-models";
 
 function randomBase64Url(length = 32): string {
   const bytes = new Uint8Array(length);
@@ -42,13 +59,29 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [clipboardToast, setClipboardToast] = useState<string | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [vaults, setVaults] = useState<VaultMetadata[]>([]);
 
-  // In-memory decrypted VEK map: vaultId -> CryptoKey (never sent to backend)
+  // In-memory decrypted VEK map: vaultId -> CryptoKey (volatile only, never persisted)
   const [unlockedKeys, setUnlockedKeys] = useState<Record<string, CryptoKey>>(
     {},
   );
+
+  // Active unlocked vault context for Phase 5 Records Engine
+  const [activeVaultId, setActiveVaultId] = useState<string | null>(null);
+  const [decryptedRecords, setDecryptedRecords] = useState<DecryptedRecord[]>(
+    [],
+  );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState<
+    "all" | "password" | "secure-note" | "identity" | "payment"
+  >("all");
+  const [revealedFields, setRevealedFields] = useState<Record<string, boolean>>(
+    {},
+  );
+
+  const recordRepo = useMemo(() => new EncryptedRecordRepository(), []);
 
   const [tab, setTab] = useState<"login" | "register">("register");
   const [email, setEmail] = useState("");
@@ -83,10 +116,61 @@ export function App() {
   const [newPasswordInput, setNewPasswordInput] = useState("");
   const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState("");
 
+  // Phase 5: Create Record Modal state
+  const [showCreateRecordModal, setShowCreateRecordModal] = useState(false);
+  const [recordType, setRecordType] = useState<
+    "password" | "secure-note" | "identity" | "payment"
+  >("password");
+  const [recordTitle, setRecordTitle] = useState("");
+  const [recordTags, setRecordTags] = useState("");
+
+  // Password fields
+  const [pwUrl, setPwUrl] = useState("");
+  const [pwUsername, setPwUsername] = useState("");
+  const [pwPassword, setPwPassword] = useState("");
+  const [pwNotes, setPwNotes] = useState("");
+
+  // Generator panel state
+  const [showGenerator, setShowGenerator] = useState(false);
+  const [genLength, setGenLength] = useState(20);
+  const [genUpper, setGenUpper] = useState(true);
+  const [genLower, setGenLower] = useState(true);
+  const [genNumbers, setGenNumbers] = useState(true);
+  const [genSymbols, setGenSymbols] = useState(true);
+  const [genExcludeAmbiguous, setGenExcludeAmbiguous] = useState(true);
+
+  // Note fields
+  const [noteContent, setNoteContent] = useState("");
+
+  // Identity fields
+  const [idType, setIdType] = useState("Passport");
+  const [idNumber, setIdNumber] = useState("");
+  const [idCountry, setIdCountry] = useState("");
+  const [idExpiry, setIdExpiry] = useState("");
+
+  // Payment fields
+  const [payHolder, setPayHolder] = useState("");
+  const [payNumber, setPayNumber] = useState("");
+  const [payExpiry, setPayExpiry] = useState("");
+  const [payNotes, setPayNotes] = useState("");
+
   // Derivation status
   const [derivationStatus, setDerivationStatus] = useState<string | null>(null);
 
   const [, startTransition] = useTransition();
+
+  // Inactivity auto-lock: 15 minutes of inactivity clears in-memory keys
+  useEffect(() => {
+    const tracker = setupInactivityTracker(15 * 60 * 1000, () => {
+      setUnlockedKeys({});
+      setActiveVaultId(null);
+      setDecryptedRecords([]);
+      setSuccess(
+        "Vaults automatically locked after 15 minutes of inactivity. Memory wiped.",
+      );
+    });
+    return () => tracker.dispose();
+  }, []);
 
   const refreshSession = async () => {
     try {
@@ -117,6 +201,17 @@ export function App() {
   useEffect(() => {
     refreshSession();
   }, []);
+
+  // Refresh decrypted records whenever active vault or unlocked keys change
+  const loadRecordsForVault = async (vaultId: string, key: CryptoKey) => {
+    try {
+      const records = await recordRepo.listRecords(vaultId, key);
+      setDecryptedRecords(records);
+    } catch (err: unknown) {
+      if (err instanceof Error)
+        setError(`Failed to load records: ${err.message}`);
+    }
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,6 +277,8 @@ export function App() {
       setDevices([]);
       setVaults([]);
       setUnlockedKeys({});
+      setActiveVaultId(null);
+      setDecryptedRecords([]);
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
     }
@@ -267,6 +364,9 @@ export function App() {
 
       // Keep VEK in memory as unlocked
       setUnlockedKeys((prev) => ({ ...prev, [created.id]: vek }));
+      setActiveVaultId(created.id);
+      loadRecordsForVault(created.id, vek);
+
       setCreatedRecoverySecret(recoverySecret);
       setNewVaultPassword("");
       setConfirmVaultPassword("");
@@ -307,6 +407,9 @@ export function App() {
       }
 
       setUnlockedKeys((prev) => ({ ...prev, [vaultId]: vek }));
+      setActiveVaultId(vaultId);
+      loadRecordsForVault(vaultId, vek);
+
       setUnlockModal(null);
       setUnlockInput("");
       setSuccess(
@@ -327,7 +430,11 @@ export function App() {
       delete next[vaultId];
       return next;
     });
-    setSuccess(`Vault locked. In-memory keys cleared.`);
+    if (activeVaultId === vaultId) {
+      setActiveVaultId(null);
+      setDecryptedRecords([]);
+    }
+    setSuccess(`Vault locked. In-memory keys and decrypted records cleared.`);
   };
 
   const handleChangePasswordSubmit = async (e: React.FormEvent) => {
@@ -393,6 +500,10 @@ export function App() {
         delete next[vaultId];
         return next;
       });
+      if (activeVaultId === vaultId) {
+        setActiveVaultId(null);
+        setDecryptedRecords([]);
+      }
       const vaultList = await listVaults();
       setVaults(vaultList.items);
       setSuccess(`Vault ${vaultId} deleted permanently.`);
@@ -400,6 +511,172 @@ export function App() {
       if (err instanceof Error) setError(err.message);
     }
   };
+
+  // Phase 5: Records Management Handlers
+  const handleCopy = async (text: string, label: string) => {
+    try {
+      await copyToClipboardWithAutoClear(text, 30_000);
+      setClipboardToast(
+        `${label} copied to clipboard! Will auto-clear in 30 seconds.`,
+      );
+      setTimeout(() => setClipboardToast(null), 4000);
+    } catch {
+      setError("Failed to copy to clipboard");
+    }
+  };
+
+  const handleGeneratePasswordClick = () => {
+    const pw = generatePassword({
+      length: genLength,
+      uppercase: genUpper,
+      lowercase: genLower,
+      numbers: genNumbers,
+      symbols: genSymbols,
+      excludeAmbiguous: genExcludeAmbiguous,
+    });
+    setPwPassword(pw);
+  };
+
+  const handleCreateRecordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeVaultId || !unlockedKeys[activeVaultId]) {
+      setError("Vault must be unlocked to save records");
+      return;
+    }
+
+    const key = unlockedKeys[activeVaultId];
+    const tags = recordTags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+
+    let recordToSave: DecryptedRecord;
+    if (recordType === "password") {
+      if (!pwPassword) {
+        setError("Password cannot be empty");
+        return;
+      }
+      const pRecord: PasswordRecord = {
+        id,
+        type: "password",
+        title: recordTitle.trim(),
+        tags,
+        url: pwUrl.trim() || undefined,
+        username: pwUsername.trim() || undefined,
+        password: pwPassword,
+        notes: pwNotes.trim() || undefined,
+        createdAt: now,
+        updatedAt: now,
+      };
+      recordToSave = pRecord;
+    } else if (recordType === "secure-note") {
+      const nRecord: SecureNoteRecord = {
+        id,
+        type: "secure-note",
+        title: recordTitle.trim(),
+        tags,
+        content: noteContent,
+        createdAt: now,
+        updatedAt: now,
+      };
+      recordToSave = nRecord;
+    } else if (recordType === "identity") {
+      const iRecord: IdentityRecord = {
+        id,
+        type: "identity",
+        title: recordTitle.trim(),
+        tags,
+        fields: {
+          identityType: idType,
+          identifierNumber: idNumber.trim() || null,
+          country: idCountry.trim() || null,
+          expiry: idExpiry.trim() || null,
+        },
+        createdAt: now,
+        updatedAt: now,
+      };
+      recordToSave = iRecord;
+    } else {
+      const payRecord: PaymentRecord = {
+        id,
+        type: "payment",
+        title: recordTitle.trim(),
+        tags,
+        fields: {
+          cardholder: payHolder.trim() || null,
+          cardNumber: payNumber.trim().replace(/\s+/g, "") || null,
+          expiry: payExpiry.trim() || null,
+          billingNotes: payNotes.trim() || null,
+        },
+        createdAt: now,
+        updatedAt: now,
+      };
+      recordToSave = payRecord;
+    }
+
+    try {
+      await recordRepo.saveRecord(activeVaultId, key, recordToSave);
+      await loadRecordsForVault(activeVaultId, key);
+      setShowCreateRecordModal(false);
+
+      // Reset form
+      setRecordTitle("");
+      setRecordTags("");
+      setPwUrl("");
+      setPwUsername("");
+      setPwPassword("");
+      setPwNotes("");
+      setNoteContent("");
+      setIdNumber("");
+      setIdCountry("");
+      setIdExpiry("");
+      setPayHolder("");
+      setPayNumber("");
+      setPayExpiry("");
+      setPayNotes("");
+      setShowGenerator(false);
+
+      setSuccess(
+        `Record "${recordToSave.title}" encrypted and saved to IndexedDB.`,
+      );
+    } catch (err: unknown) {
+      if (err instanceof Error)
+        setError(`Failed to save record: ${err.message}`);
+    }
+  };
+
+  const handleDeleteRecord = async (objectId: string, title: string) => {
+    if (!activeVaultId || !unlockedKeys[activeVaultId]) return;
+    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
+
+    try {
+      await recordRepo.deleteRecord(activeVaultId, objectId, 1);
+      await loadRecordsForVault(activeVaultId, unlockedKeys[activeVaultId]);
+      setSuccess(`Record "${title}" deleted locally; tombstone queued.`);
+    } catch (err: unknown) {
+      if (err instanceof Error) setError(`Failed to delete: ${err.message}`);
+    }
+  };
+
+  const toggleReveal = (id: string) => {
+    setRevealedFields((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // Filter & Search records
+  const filteredRecords = useMemo(() => {
+    let list = decryptedRecords;
+    if (filterType !== "all") {
+      list = list.filter((r) => r.type === filterType);
+    }
+    return searchDecryptedRecords(list, searchQuery);
+  }, [decryptedRecords, filterType, searchQuery]);
+
+  const pwStrength = useMemo(
+    () => estimatePasswordStrength(pwPassword),
+    [pwPassword],
+  );
 
   if (loading) {
     return (
@@ -426,6 +703,9 @@ export function App() {
 
       {error && <div className="error-banner">{error}</div>}
       {success && <div className="success-banner">{success}</div>}
+      {clipboardToast && (
+        <div className="success-banner">📋 {clipboardToast}</div>
+      )}
 
       {derivationStatus && (
         <div className="deriving-overlay">
@@ -566,15 +846,25 @@ export function App() {
         </section>
       ) : (
         <div>
-          {/* Phase 4: Vault Management Section */}
+          {/* Phase 4 & 5: Vault Management and Record Engine Section */}
           <section className="card">
             <div className="header" style={{ marginBottom: "1rem" }}>
               <div>
                 <h2>Your Encrypted Vaults ({vaults.length})</h2>
-                <p className="device-meta">
-                  Zero-knowledge encryption: records and keys are never sent in
-                  plaintext.
-                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    alignItems: "center",
+                  }}
+                >
+                  <span className="timer-badge">
+                    ⏱️ Auto-lock in 15m inactivity
+                  </span>
+                  <span className="device-meta">
+                    IndexedDB Encrypted at rest (AES-256-GCM / KW)
+                  </span>
+                </div>
               </div>
               <button
                 className="primary-btn"
@@ -596,6 +886,8 @@ export function App() {
               <div className="vault-grid">
                 {vaults.map((v) => {
                   const isUnlocked = Boolean(unlockedKeys[v.id]);
+                  const isCurrentActive = activeVaultId === v.id;
+
                   return (
                     <div
                       key={v.id}
@@ -615,7 +907,7 @@ export function App() {
                         <span
                           className={`status-badge ${isUnlocked ? "active" : "pending"}`}
                         >
-                          {isUnlocked ? "Unlocked (In-Memory)" : "Locked"}
+                          {isUnlocked ? "Unlocked" : "Locked"}
                         </span>
                       </div>
 
@@ -650,6 +942,21 @@ export function App() {
                         ) : (
                           <>
                             <button
+                              className={
+                                isCurrentActive
+                                  ? "primary-btn"
+                                  : "secondary-btn"
+                              }
+                              onClick={() => {
+                                setActiveVaultId(v.id);
+                                loadRecordsForVault(v.id, unlockedKeys[v.id]);
+                              }}
+                            >
+                              {isCurrentActive
+                                ? "Viewing Records"
+                                : "View Records"}
+                            </button>
+                            <button
                               className="secondary-btn"
                               onClick={() => handleLockVault(v.id)}
                             >
@@ -676,20 +983,301 @@ export function App() {
                         </button>
                       </div>
 
-                      {isUnlocked && (
-                        <div
-                          style={{
-                            marginTop: "1rem",
-                            padding: "0.85rem",
-                            background: "#f0fdf4",
-                            borderRadius: "6px",
-                            border: "1px dashed #86efac",
-                            fontSize: "0.85rem",
-                            color: "#166534",
-                          }}
-                        >
-                          ✓ VEK active in volatile memory. Phase 5 Local
-                          Encrypted Record Engine ready.
+                      {/* Phase 5: Interactive Encrypted Record Engine */}
+                      {isUnlocked && isCurrentActive && (
+                        <div className="records-container">
+                          <div className="records-toolbar">
+                            <div className="filter-group">
+                              {(
+                                [
+                                  ["all", "All"],
+                                  ["password", "Passwords"],
+                                  ["secure-note", "Notes"],
+                                  ["identity", "Identities"],
+                                  ["payment", "Payments"],
+                                ] as const
+                              ).map(([val, label]) => (
+                                <button
+                                  key={val}
+                                  className={`filter-chip ${filterType === val ? "active" : ""}`}
+                                  onClick={() => setFilterType(val)}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                            <button
+                              className="primary-btn"
+                              onClick={() => setShowCreateRecordModal(true)}
+                            >
+                              + New Record
+                            </button>
+                          </div>
+
+                          <div style={{ marginBottom: "1rem" }}>
+                            <input
+                              type="text"
+                              style={{ width: "100%" }}
+                              placeholder="Search decrypted records (title, tag, username, url)..."
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                          </div>
+
+                          {filteredRecords.length === 0 ? (
+                            <p
+                              className="device-meta"
+                              style={{ textAlign: "center", padding: "1.5rem" }}
+                            >
+                              {searchQuery
+                                ? "No records matched your search query."
+                                : "No records in this vault yet. Click '+ New Record' to create one."}
+                            </p>
+                          ) : (
+                            <div className="record-list">
+                              {filteredRecords.map((r) => {
+                                const isRevealed = Boolean(
+                                  revealedFields[r.id],
+                                );
+
+                                return (
+                                  <div key={r.id} className="record-card">
+                                    <div className="record-card-header">
+                                      <div>
+                                        <div
+                                          style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "0.5rem",
+                                          }}
+                                        >
+                                          <span
+                                            className={`type-pill ${r.type}`}
+                                          >
+                                            {r.type.replace("-", " ")}
+                                          </span>
+                                          <h3 className="record-title">
+                                            {r.title}
+                                          </h3>
+                                        </div>
+                                        {r.tags && r.tags.length > 0 && (
+                                          <div className="tags-row">
+                                            {r.tags.map((t) => (
+                                              <span
+                                                key={t}
+                                                className="tag-badge"
+                                              >
+                                                #{t}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <button
+                                        className="danger-btn"
+                                        onClick={() =>
+                                          handleDeleteRecord(r.id, r.title)
+                                        }
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+
+                                    {/* Type specific fields */}
+                                    <div className="record-fields">
+                                      {r.type === "password" && (
+                                        <>
+                                          {r.url && (
+                                            <div className="field-line">
+                                              <span className="field-label">
+                                                URL:
+                                              </span>
+                                              <span className="field-value">
+                                                <a
+                                                  href={r.url}
+                                                  target="_blank"
+                                                  rel="noreferrer"
+                                                >
+                                                  {r.url}
+                                                </a>
+                                              </span>
+                                            </div>
+                                          )}
+                                          {r.username && (
+                                            <div className="field-line">
+                                              <span className="field-label">
+                                                Username:
+                                              </span>
+                                              <span className="field-value">
+                                                <span>{r.username}</span>
+                                                <button
+                                                  className="btn-sm"
+                                                  onClick={() =>
+                                                    handleCopy(
+                                                      r.username!,
+                                                      "Username",
+                                                    )
+                                                  }
+                                                >
+                                                  Copy
+                                                </button>
+                                              </span>
+                                            </div>
+                                          )}
+                                          <div className="field-line">
+                                            <span className="field-label">
+                                              Password:
+                                            </span>
+                                            <span className="field-value">
+                                              <span>
+                                                {isRevealed
+                                                  ? r.password
+                                                  : "••••••••••••"}
+                                              </span>
+                                              <button
+                                                className="btn-sm"
+                                                onClick={() =>
+                                                  toggleReveal(r.id)
+                                                }
+                                              >
+                                                {isRevealed ? "Hide" : "Show"}
+                                              </button>
+                                              <button
+                                                className="btn-sm"
+                                                onClick={() =>
+                                                  handleCopy(
+                                                    r.password,
+                                                    "Password",
+                                                  )
+                                                }
+                                              >
+                                                Copy
+                                              </button>
+                                            </span>
+                                          </div>
+                                          {r.notes && (
+                                            <div
+                                              className="field-line"
+                                              style={{ marginTop: "0.25rem" }}
+                                            >
+                                              <span className="field-label">
+                                                Notes:
+                                              </span>
+                                              <span>{r.notes}</span>
+                                            </div>
+                                          )}
+                                        </>
+                                      )}
+
+                                      {r.type === "secure-note" && (
+                                        <div
+                                          style={{
+                                            whiteSpace: "pre-wrap",
+                                            lineHeight: 1.5,
+                                          }}
+                                        >
+                                          {r.content}
+                                        </div>
+                                      )}
+
+                                      {r.type === "identity" && (
+                                        <>
+                                          {Object.entries(r.fields).map(
+                                            ([k, val]) => (
+                                              <div
+                                                key={k}
+                                                className="field-line"
+                                              >
+                                                <span className="field-label">
+                                                  {k}:
+                                                </span>
+                                                <span className="field-value">
+                                                  {String(val ?? "")}
+                                                </span>
+                                              </div>
+                                            ),
+                                          )}
+                                        </>
+                                      )}
+
+                                      {r.type === "payment" && (
+                                        <>
+                                          {r.fields.cardholder && (
+                                            <div className="field-line">
+                                              <span className="field-label">
+                                                Cardholder:
+                                              </span>
+                                              <span>
+                                                {String(r.fields.cardholder)}
+                                              </span>
+                                            </div>
+                                          )}
+                                          {r.fields.cardNumber && (
+                                            <div className="field-line">
+                                              <span className="field-label">
+                                                Card Number:
+                                              </span>
+                                              <span className="field-value">
+                                                <span>
+                                                  {isRevealed
+                                                    ? String(
+                                                        r.fields.cardNumber,
+                                                      )
+                                                    : `•••• •••• •••• ${String(r.fields.cardNumber).slice(-4)}`}
+                                                </span>
+                                                <button
+                                                  className="btn-sm"
+                                                  onClick={() =>
+                                                    toggleReveal(r.id)
+                                                  }
+                                                >
+                                                  {isRevealed ? "Hide" : "Show"}
+                                                </button>
+                                                <button
+                                                  className="btn-sm"
+                                                  onClick={() =>
+                                                    handleCopy(
+                                                      String(
+                                                        r.fields.cardNumber,
+                                                      ),
+                                                      "Card Number",
+                                                    )
+                                                  }
+                                                >
+                                                  Copy
+                                                </button>
+                                              </span>
+                                            </div>
+                                          )}
+                                          {r.fields.expiry && (
+                                            <div className="field-line">
+                                              <span className="field-label">
+                                                Expires:
+                                              </span>
+                                              <span>
+                                                {String(r.fields.expiry)}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+
+                                    <div
+                                      style={{
+                                        fontSize: "0.75rem",
+                                        color: "#839587",
+                                        textAlign: "right",
+                                      }}
+                                    >
+                                      Updated:{" "}
+                                      {new Date(r.updatedAt).toLocaleString()}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -949,6 +1537,349 @@ export function App() {
                 </button>
                 <button type="submit" className="primary-btn">
                   Re-wrap & Update Password
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Create Record (Phase 5) */}
+      {showCreateRecordModal && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h2>Add New Encrypted Record</h2>
+            <div className="tab-bar" style={{ marginTop: "0.5rem" }}>
+              <button
+                type="button"
+                className={`tab-btn ${recordType === "password" ? "active" : ""}`}
+                onClick={() => setRecordType("password")}
+              >
+                Password
+              </button>
+              <button
+                type="button"
+                className={`tab-btn ${recordType === "secure-note" ? "active" : ""}`}
+                onClick={() => setRecordType("secure-note")}
+              >
+                Note
+              </button>
+              <button
+                type="button"
+                className={`tab-btn ${recordType === "identity" ? "active" : ""}`}
+                onClick={() => setRecordType("identity")}
+              >
+                Identity
+              </button>
+              <button
+                type="button"
+                className={`tab-btn ${recordType === "payment" ? "active" : ""}`}
+                onClick={() => setRecordType("payment")}
+              >
+                Payment
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateRecordSubmit} className="form">
+              <label>
+                Record Title
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. GitHub, AWS, Passport, Visa"
+                  value={recordTitle}
+                  onChange={(e) => setRecordTitle(e.target.value)}
+                />
+              </label>
+
+              <label>
+                Tags (comma separated)
+                <input
+                  type="text"
+                  placeholder="e.g. work, cloud, personal"
+                  value={recordTags}
+                  onChange={(e) => setRecordTags(e.target.value)}
+                />
+              </label>
+
+              {/* Type specific inputs */}
+              {recordType === "password" && (
+                <>
+                  <label>
+                    Website / Service URL
+                    <input
+                      type="url"
+                      placeholder="https://example.com/login"
+                      value={pwUrl}
+                      onChange={(e) => setPwUrl(e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    Username or Email
+                    <input
+                      type="text"
+                      placeholder="username@example.com"
+                      value={pwUsername}
+                      onChange={(e) => setPwUsername(e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <span>Password</span>
+                      <button
+                        type="button"
+                        className="btn-sm"
+                        onClick={() => setShowGenerator(!showGenerator)}
+                      >
+                        {showGenerator
+                          ? "Hide Generator"
+                          : "Password Generator"}
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter or generate password"
+                      value={pwPassword}
+                      onChange={(e) => setPwPassword(e.target.value)}
+                    />
+                  </label>
+
+                  {pwPassword && (
+                    <div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: "0.78rem",
+                        }}
+                      >
+                        <span>Strength: {pwStrength.label}</span>
+                        <span>{pwStrength.entropyBits} bits entropy</span>
+                      </div>
+                      <div className="strength-bar">
+                        <div
+                          className="strength-fill"
+                          style={{
+                            width: `${Math.min(100, (pwStrength.entropyBits / 100) * 100)}%`,
+                            backgroundColor: pwStrength.color,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {showGenerator && (
+                    <div className="generator-box">
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: "0.85rem",
+                          fontWeight: 600,
+                        }}
+                      >
+                        <span>Length: {genLength}</span>
+                        <input
+                          type="range"
+                          min="8"
+                          max="64"
+                          value={genLength}
+                          onChange={(e) => setGenLength(Number(e.target.value))}
+                        />
+                      </div>
+
+                      <div className="checkbox-row">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={genUpper}
+                            onChange={(e) => setGenUpper(e.target.checked)}
+                          />
+                          A-Z
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={genLower}
+                            onChange={(e) => setGenLower(e.target.checked)}
+                          />
+                          a-z
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={genNumbers}
+                            onChange={(e) => setGenNumbers(e.target.checked)}
+                          />
+                          0-9
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={genSymbols}
+                            onChange={(e) => setGenSymbols(e.target.checked)}
+                          />
+                          Symbols
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={genExcludeAmbiguous}
+                            onChange={(e) =>
+                              setGenExcludeAmbiguous(e.target.checked)
+                            }
+                          />
+                          Exclude Ambiguous (0,O,l,1)
+                        </label>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="secondary-btn"
+                        style={{ width: "100%", marginTop: "0.5rem" }}
+                        onClick={handleGeneratePasswordClick}
+                      >
+                        ⚡ Generate & Insert Password
+                      </button>
+                    </div>
+                  )}
+
+                  <label>
+                    Notes
+                    <textarea
+                      rows={2}
+                      placeholder="Optional notes or security questions"
+                      value={pwNotes}
+                      onChange={(e) => setPwNotes(e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
+
+              {recordType === "secure-note" && (
+                <label>
+                  Secure Note Content
+                  <textarea
+                    rows={6}
+                    required
+                    placeholder="Enter confidential notes or recovery instructions"
+                    value={noteContent}
+                    onChange={(e) => setNoteContent(e.target.value)}
+                  />
+                </label>
+              )}
+
+              {recordType === "identity" && (
+                <>
+                  <label>
+                    Identity Type
+                    <select
+                      value={idType}
+                      onChange={(e) => setIdType(e.target.value)}
+                      style={{ padding: "0.5rem", borderRadius: "6px" }}
+                    >
+                      <option value="Passport">Passport</option>
+                      <option value="Driver License">Driver License</option>
+                      <option value="National ID">National ID</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    Identifier / Document Number
+                    <input
+                      type="text"
+                      placeholder="e.g. Z12345678"
+                      value={idNumber}
+                      onChange={(e) => setIdNumber(e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    Issuing Country / Authority
+                    <input
+                      type="text"
+                      placeholder="e.g. United States"
+                      value={idCountry}
+                      onChange={(e) => setIdCountry(e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    Expiry Date
+                    <input
+                      type="text"
+                      placeholder="YYYY-MM-DD"
+                      value={idExpiry}
+                      onChange={(e) => setIdExpiry(e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
+
+              {recordType === "payment" && (
+                <>
+                  <label>
+                    Cardholder Name
+                    <input
+                      type="text"
+                      placeholder="Jane Doe"
+                      value={payHolder}
+                      onChange={(e) => setPayHolder(e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    Card Number
+                    <input
+                      type="text"
+                      placeholder="4000 1234 5678 9010"
+                      value={payNumber}
+                      onChange={(e) => setPayNumber(e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    Expiry (MM/YY)
+                    <input
+                      type="text"
+                      placeholder="12/28"
+                      value={payExpiry}
+                      onChange={(e) => setPayExpiry(e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    Billing Notes
+                    <input
+                      type="text"
+                      placeholder="Billing zip, bank contact, etc."
+                      value={payNotes}
+                      onChange={(e) => setPayNotes(e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={() => setShowCreateRecordModal(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="primary-btn">
+                  Encrypt & Save Record
                 </button>
               </div>
             </form>

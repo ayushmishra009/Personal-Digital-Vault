@@ -72,6 +72,21 @@ All Phase 3 verification targets pass in Go backend test suite (`apps/api/intern
 
 All Phase 4 verification targets pass in Go backend test suite (`apps/api/internal/router`) and frontend Vitest suite (`apps/vault-web/src/vault.test.ts`).
 
+## Phase 5 local encrypted record engine verification targets
+
+- Verify IndexedDB schema creates versioned stores (`encrypted_records`, `pending_operations`, `vault_metadata`, `sync_state`).
+- Verify stored records contain only ciphertext object envelopes; plaintext titles, notes, passwords, and custom fields never appear in raw database storage.
+- Verify saving password, secure note, identity, and payment records produces valid AES-256-GCM ciphertext with canonical context AAD and AES-256-KW wrapped DEKs.
+- Verify valid VEK unwraps DEK and decrypts stored records without data loss.
+- Verify wrong VEK fails closed and throws an error without returning plaintext.
+- Verify record deletion removes ciphertext from `encrypted_records` and enqueues a tombstone `delete` operation with revision tracking into `pending_operations`.
+- Verify client search filters in-memory decrypted records across title, tags, username, notes, URL, and custom fields.
+- Verify password generator generates requested length, incorporates required charsets, excludes ambiguous characters when configured, and exhibits no modulo bias.
+- Verify password strength estimator evaluates entropy and classifications.
+- Verify inactivity tracker triggers callback after timeout and respects timer resets on user activity.
+
+All Phase 5 verification targets pass in `apps/vault-web/src/storage/storage.test.ts`.
+
 ## Later security and product coverage
 
 Follow the master specification's crypto known-answer and negative tests, backend authorization/tenant isolation tests, offline/conflict tests, CMS schema/revision tests, attachment ciphertext checks, extension origin-boundary tests, and end-to-end flows. Round-trip crypto tests alone are insufficient. Do not use production data in tests.

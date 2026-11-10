@@ -5,6 +5,8 @@
 - This Phase 1 foundation is not suitable for real vault data.
 - The API implements Phase 3 authentication and device enrollment with strict tenant enforcement and cryptographic session hashing.
 - The API implements Phase 4 zero-knowledge vault lifecycle management with Argon2id p=4 parameter enforcement, envelope rewrapping, and tenant-scoped authorization.
+- Phase 5 local record storage persists only AES-256-GCM / AES-256-KW ciphertext envelopes in IndexedDB. Plaintext passwords, notes, payment info, and identity data are never stored in browser storage.
+- Decrypted record state and VEKs exist exclusively in transient volatile memory (`CryptoKey`) during unlock; an inactivity monitor automatically locks vaults and wipes memory after 15 minutes.
 - The Admin frontend is a visible shell, not an authenticated panel yet.
 - Phase 2 crypto-core operations are a prototype, **PENDING SECURITY REVIEW**; stream encryption is not yet implemented.
 - Decrypted Vault Encryption Keys (VEKs) reside strictly in volatile client memory (`CryptoKey`) during active unlock; locking clears in-memory keys immediately. Keys are never transmitted over the wire or stored in environment variables.

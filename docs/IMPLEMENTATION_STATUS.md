@@ -1,7 +1,7 @@
 # Implementation status
 
-**Current phase:** Phase 5 — Local encrypted record engine<br>
-**Status:** Phases 0, 1, 2, 3, and 4 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 4 provides complete vault lifecycle management: independent zero-knowledge vault creation, client-side VEK generation, Argon2id p=4 password envelope derivation, HKDF recovery envelope derivation, in-memory volatile key unlocking, password rewrapping with fresh salt, vault deletion, and strict tenant isolation on the backend. All backend and frontend unit tests pass.
+**Current phase:** Phase 6 — CMS/Admin foundation<br>
+**Status:** Phases 0, 1, 2, 3, 4, and 5 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 5 delivers a complete client-side encrypted record engine: IndexedDB schema with versioning and fallback, encrypted object repository wrapping DEKs with VEKs and sealing payloads with AES-256-GCM, full CRUD operations for passwords, secure notes, identities, and payments, local in-memory search, cryptographically secure password generator, clipboard auto-clearing, and 15-minute inactivity auto-lock. All backend and frontend unit tests pass.
 
 ## Repository state at start
 
@@ -71,9 +71,33 @@ The repository contained only the master build specification and Git metadata. N
   - Go API tests in `internal/router/router_test.go` (`TestVaultLifecycle`, `TestVaultTenantIsolation`).
   - Vitest test in `apps/vault-web/src/vault.test.ts` validating envelope creation, password unlock, recovery unlock, password change, and wrong-password rejection.
 
+## Phase 5 scope delivered
+
+- IndexedDB local storage engine (`apps/vault-web/src/storage/db.ts`) with versioned stores for `encrypted_records`, `pending_operations`, `vault_metadata`, and `sync_state`. Includes an in-memory database fallback for unit test and non-browser environments.
+- Strict zero-knowledge storage at rest: IndexedDB stores only `EncryptedObjectEnvelope` instances; plaintext titles, passwords, notes, card numbers, and identity data are never stored on disk.
+- Encrypted object repository (`apps/vault-web/src/storage/record-repository.ts`):
+  - Record encryption using `@pdv/crypto-core` (`sealObject`): generates a fresh 256-bit DEK, seals payload using AES-256-GCM with authenticated binary context AAD, and wraps the DEK using AES-256-KW with an HKDF-derived wrapping key from the active VEK.
+  - Record decryption using `openObject`: validates binary context and AEAD tag; fails closed on wrong key or corrupted ciphertext.
+  - Automatic offline sync queue: enqueues revision-tracked `SyncOperation` instances (`upsert` and `delete` tombstones) into `pending_operations`.
+  - Local in-memory search (`searchDecryptedRecords`): searches across titles, tags, usernames, URLs, notes, and custom fields in memory after unlock.
+- Cryptographic password generator (`apps/vault-web/src/storage/password-generator.ts`):
+  - Uses `crypto.getRandomValues` with rejection sampling to eliminate modulo bias.
+  - Configurable length (8-64), character sets (upper, lower, digits, symbols), and ambiguous character exclusion (0, O, l, 1, I).
+  - Entropy bits calculation and strength categorization (Weak to Very Strong).
+- Clipboard manager (`apps/vault-web/src/storage/clipboard.ts`):
+  - Copies sensitive data to system clipboard with 30-second auto-clearing timer.
+- Inactivity manager (`apps/vault-web/src/storage/inactivity.ts`):
+  - Automatically wipes in-memory VEKs and decrypted records after 15 minutes of user inactivity.
+- Interactive Dashboard UI in `apps/vault-web/src/App.tsx`:
+  - Instant record search and type filtering (All, Passwords, Notes, Identities, Payments).
+  - Masked sensitive fields (password, card number) with show/hide toggle.
+  - Password generator panel integrated directly into record creation modal.
+  - Single-click clipboard copy with auto-clear notice.
+- Comprehensive automated test suite in `apps/vault-web/src/storage/storage.test.ts`.
+
 ## Not implemented
 
-Local IndexedDB encrypted record engine (Phase 5), CMS features (Phase 6), sync engine, streaming attachments, and production deployment are not implemented.
+CMS/Admin foundation (Phase 6), backend sync engine and conflict resolution (Phase 8), streaming attachments (Phase 9), backup/restore archives (Phase 10), and Chrome extension (Phase 11) are not implemented.
 
 ## Verification
 
@@ -81,9 +105,9 @@ Local IndexedDB encrypted record engine (Phase 5), CMS features (Phase 6), sync 
 - `npx prettier --write .` and `npx eslint .` passed with 0 errors.
 - Redocly lint passed with 0 errors.
 - Go backend unit tests (`internal/auth` and `internal/router`) passed 100%.
-- Client vault lifecycle vitest tests passed 100%.
+- Client vault and storage vitest tests passed 100% (5/5 tests passing).
 - TypeScript packages and apps typecheck cleanly with 0 errors.
 
 ## Next phase
 
-Phase 5 — Local encrypted record engine: Dexie/IndexedDB schema, client-side encryption of records and indexes using DEK wrapped by VEK, CRUD operations on records, and local change queuing.
+Phase 6 — CMS/Admin foundation: Protected Admin/CMS workspace and authorization, account/tenant-scoped CRUD for modules, navigation, screens, sections, record types, custom fields and themes, versioned configuration schemas and validation, dynamic configuration API, and trusted frontend section renderer.
