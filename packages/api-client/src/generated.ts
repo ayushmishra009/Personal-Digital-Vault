@@ -305,6 +305,179 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/app/configuration": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Retrieve the published dynamic app configuration */
+    get: operations["getAppConfiguration"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/cms/modules": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List configurable application modules */
+    get: operations["listCmsModules"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/cms/modules/{moduleKey}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Update configuration for a specific module */
+    put: operations["updateCmsModule"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/cms/sections": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List configured screen sections */
+    get: operations["listCmsSections"];
+    put?: never;
+    /** Create a new screen section */
+    post: operations["createCmsSection"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/cms/sections/{sectionId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Update an existing screen section */
+    put: operations["updateCmsSection"];
+    post?: never;
+    /** Delete a screen section */
+    delete: operations["deleteCmsSection"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/cms/navigation": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List navigation items */
+    get: operations["listCmsNavigation"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/cms/navigation/{itemId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Update a navigation item */
+    put: operations["updateCmsNavigationItem"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/cms/theme": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get active theme settings */
+    get: operations["getCmsTheme"];
+    /** Update theme settings */
+    put: operations["updateCmsTheme"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/cms/revisions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List audit revision history of CMS changes */
+    get: operations["listCmsRevisions"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/cms/revisions/{revisionNumber}/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Restore configuration from a prior revision snapshot */
+    post: operations["restoreCmsRevision"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -553,6 +726,106 @@ export interface components {
       items: components["schemas"]["SyncEvent"][];
       nextCursor: string;
       hasMore: boolean;
+    };
+    CmsModule: {
+      /** Format: uuid */
+      id: string;
+      moduleKey: string;
+      displayName: string;
+      description?: string | null;
+      iconKey: string;
+      isEnabled: boolean;
+      displayOrder: number;
+      routeKey: string;
+    };
+    UpdateCmsModuleRequest: {
+      displayName: string;
+      description?: string | null;
+      isEnabled: boolean;
+      displayOrder: number;
+    };
+    CmsSection: {
+      /** Format: uuid */
+      id: string;
+      screenKey: string;
+      sectionType: string;
+      title: string;
+      contentPayload: {
+        [key: string]: unknown;
+      };
+      styleConfig: {
+        [key: string]: unknown;
+      };
+      displayOrder: number;
+      isEnabled: boolean;
+    };
+    CreateCmsSectionRequest: {
+      screenKey: string;
+      sectionType: string;
+      title: string;
+      contentPayload?: {
+        [key: string]: unknown;
+      };
+      styleConfig?: {
+        [key: string]: unknown;
+      };
+      /** @default 0 */
+      displayOrder: number;
+      /** @default true */
+      isEnabled: boolean;
+    };
+    UpdateCmsSectionRequest: {
+      title: string;
+      contentPayload?: {
+        [key: string]: unknown;
+      };
+      styleConfig?: {
+        [key: string]: unknown;
+      };
+      displayOrder: number;
+      isEnabled: boolean;
+    };
+    CmsNavigationItem: {
+      /** Format: uuid */
+      id: string;
+      label: string;
+      routeKey: string;
+      iconKey: string;
+      displayOrder: number;
+      isEnabled: boolean;
+    };
+    UpdateCmsNavigationItemRequest: {
+      label: string;
+      displayOrder: number;
+      isEnabled: boolean;
+    };
+    CmsThemeSettings: {
+      themePreset: string;
+      primaryColor: string;
+      borderRadius: string;
+      density: string;
+    };
+    UpdateCmsThemeRequest: {
+      themePreset: string;
+      primaryColor: string;
+      borderRadius: string;
+      density: string;
+    };
+    CmsRevision: {
+      /** Format: uuid */
+      id: string;
+      revisionNumber: number;
+      actorDeviceId?: string | null;
+      changeSummary: string;
+      /** Format: date-time */
+      createdAt: string;
+    };
+    AppConfiguration: {
+      modules: components["schemas"]["CmsModule"][];
+      navigation: components["schemas"]["CmsNavigationItem"][];
+      sections: components["schemas"]["CmsSection"][];
+      theme: components["schemas"]["CmsThemeSettings"];
+      revisionNumber: number;
     };
   };
   responses: {
@@ -1175,6 +1448,319 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  getAppConfiguration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Published app configuration */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AppConfiguration"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+    };
+  };
+  listCmsModules: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of modules */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CmsModule"][];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+    };
+  };
+  updateCmsModule: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        moduleKey: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateCmsModuleRequest"];
+      };
+    };
+    responses: {
+      /** @description Updated module */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CmsModule"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listCmsSections: {
+    parameters: {
+      query?: {
+        screenKey?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of sections */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CmsSection"][];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+    };
+  };
+  createCmsSection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateCmsSectionRequest"];
+      };
+    };
+    responses: {
+      /** @description Created section */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CmsSection"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  updateCmsSection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        sectionId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateCmsSectionRequest"];
+      };
+    };
+    responses: {
+      /** @description Updated section */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CmsSection"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  deleteCmsSection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        sectionId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Section deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  listCmsNavigation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of navigation items */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CmsNavigationItem"][];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+    };
+  };
+  updateCmsNavigationItem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateCmsNavigationItemRequest"];
+      };
+    };
+    responses: {
+      /** @description Updated navigation item */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CmsNavigationItem"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  getCmsTheme: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Theme settings */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CmsThemeSettings"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+    };
+  };
+  updateCmsTheme: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateCmsThemeRequest"];
+      };
+    };
+    responses: {
+      /** @description Updated theme settings */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CmsThemeSettings"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listCmsRevisions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description List of revisions */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CmsRevision"][];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+    };
+  };
+  restoreCmsRevision: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        revisionNumber: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Restored configuration */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AppConfiguration"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
     };
   };
 }

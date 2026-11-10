@@ -7,7 +7,11 @@
 - The API implements Phase 4 zero-knowledge vault lifecycle management with Argon2id p=4 parameter enforcement, envelope rewrapping, and tenant-scoped authorization.
 - Phase 5 local record storage persists only AES-256-GCM / AES-256-KW ciphertext envelopes in IndexedDB. Plaintext passwords, notes, payment info, and identity data are never stored in browser storage.
 - Decrypted record state and VEKs exist exclusively in transient volatile memory (`CryptoKey`) during unlock; an inactivity monitor automatically locks vaults and wipes memory after 15 minutes.
-- The Admin frontend is a visible shell, not an authenticated panel yet.
+- The Admin frontend is an authenticated application (`apps/admin-web`) scoped strictly by account session authorization.
+- Phase 6 CMS architecture enforces strict zero-knowledge boundaries: CMS tables (`cms_modules`, `cms_sections`, `cms_navigation_items`, `cms_theme_settings`, `cms_revisions`) store presentation and layout tokens only. No plaintext vault records, passwords, keys, or attachments are handled or persisted by the CMS.
+- Cross-tenant CMS isolation: All CMS queries and mutations are partitioned by `account_id`. Attempts to access or modify another tenant's configuration return 404 Not Found without leaking existence or configuration data.
+- Declarative component whitelist prevents XSS: Frontend rendering in `apps/vault-web` is mediated exclusively through `CmsSectionRenderer`. Only whitelisted section types (`welcome`, `summary`, `quick_actions`, `recent_items`, `vault_cards`, `custom_info`, `help_panel`) are executed. All content payloads are rendered as React text nodes; `dangerouslySetInnerHTML`, script injection, eval, and arbitrary HTML/CSS are strictly prohibited.
+- Audit history: Every CMS configuration mutation creates an immutable snapshot in `cms_revisions` with actor device metadata and human-readable summaries, supporting one-click rollback.
 - Phase 2 crypto-core operations are a prototype, **PENDING SECURITY REVIEW**; stream encryption is not yet implemented.
 - Decrypted Vault Encryption Keys (VEKs) reside strictly in volatile client memory (`CryptoKey`) during active unlock; locking clears in-memory keys immediately. Keys are never transmitted over the wire or stored in environment variables.
 - The backend stores only opaque vault IDs, timestamps, and wrapped envelopes; it never receives plaintext labels, passwords, recovery secrets, or decrypted data.

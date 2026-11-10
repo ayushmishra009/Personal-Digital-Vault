@@ -573,3 +573,250 @@ func TestVaultTenantIsolation(t *testing.T) {
 		t.Errorf("expected 404 for cross-account vault delete, got %d", recCrossDel.Code)
 	}
 }
+
+func TestCmsEndpointsAndSeeding(t *testing.T) {
+	h, _ := setupTestServer()
+
+	pub := base64.RawURLEncoding.EncodeToString([]byte("pubkey-for-cms-testing-32bytes!!"))
+	recReg := doRequest(h, "POST", "/api/v1/auth/register", handlers.RegisterRequest{
+		Email:              "cmsuser@example.com",
+		DeviceLabel:        "CMS Test Device",
+		Platform:           "Web",
+		Browser:            "Chrome",
+		PublicKeyAlgorithm: "Ed25519",
+		PublicKey:          pub,
+		CredentialType:     "external",
+		CredentialID:       "cred-cms-001",
+	}, nil)
+	if recReg.Code != http.StatusCreated {
+		t.Fatalf("failed to register user for CMS test: %d", recReg.Code)
+	}
+	cookie := recReg.Result().Cookies()[0]
+
+	// 1. Get initial seeded app configuration
+	recConfig := doRequest(h, "GET", "/api/v1/app/configuration", nil, cookie)
+	if recConfig.Code != http.StatusOK {
+		t.Fatalf("expected 200 for app config, got %d: %s", recConfig.Code, recConfig.Body.String())
+	}
+	var config domain.AppConfiguration
+	if err := json.Unmarshal(recConfig.Body.Bytes(), &config); err != nil {
+		t.Fatalf("failed to unmarshal app configuration: %v", err)
+	}
+	if len(config.Modules) == 0 {
+		t.Fatalf("expected seeded modules, got none")
+	}
+	if len(config.Sections) == 0 {
+		t.Fatalf("expected seeded sections, got none")
+	}
+	if len(config.Navigation) == 0 {
+		t.Fatalf("expected seeded navigation, got none")
+	}
+	if config.Theme.ThemePreset == "" {
+		t.Fatalf("expected seeded theme preset, got empty")
+	}
+
+	// 2. List & Update Modules
+	recModules := doRequest(h, "GET", "/api/v1/admin/cms/modules", nil, cookie)
+	if recModules.Code != http.StatusOK {
+		t.Fatalf("expected 200 for cms modules, got %d", recModules.Code)
+	}
+	var modules []domain.CmsModule
+	_ = json.Unmarshal(recModules.Body.Bytes(), &modules)
+	if len(modules) == 0 {
+		t.Fatalf("expected module list to have items")
+	}
+
+	targetModule := modules[0].ModuleKey
+	desc := "Customized generator module"
+	recUpdateMod := doRequest(h, "PUT", "/api/v1/admin/cms/modules/"+targetModule, handlers.UpdateCmsModuleRequest{
+		DisplayName:  "Custom Generator",
+		Description:  &desc,
+		IsEnabled:    true,
+		DisplayOrder: 10,
+	}, cookie)
+	if recUpdateMod.Code != http.StatusOK {
+		t.Fatalf("expected 200 for update module, got %d: %s", recUpdateMod.Code, recUpdateMod.Body.String())
+	}
+
+	// 3. Sections: List, Create, Update, Delete
+	recSections := doRequest(h, "GET", "/api/v1/admin/cms/sections?screenKey=vault_overview", nil, cookie)
+	if recSections.Code != http.StatusOK {
+		t.Fatalf("expected 200 for cms sections, got %d", recSections.Code)
+	}
+
+	recCreateSec := doRequest(h, "POST", "/api/v1/admin/cms/sections", handlers.CreateCmsSectionRequest{
+		ScreenKey:   "vault_overview",
+		SectionType: "quick_actions",
+		Title:       "Dynamic Quick Actions",
+		ContentPayload: map[string]any{
+			"actions": []string{"add_password", "generate_pass"},
+		},
+		StyleConfig: map[string]any{
+			"variant": "compact",
+		},
+		DisplayOrder: 99,
+		IsEnabled:    true,
+	}, cookie)
+	if recCreateSec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for create section, got %d: %s", recCreateSec.Code, recCreateSec.Body.String())
+	}
+	var createdSec domain.CmsSection
+	_ = json.Unmarshal(recCreateSec.Body.Bytes(), &createdSec)
+	if createdSec.ID == "" {
+		t.Fatalf("expected created section to have an ID")
+	}
+
+	recUpdateSec := doRequest(h, "PUT", "/api/v1/admin/cms/sections/"+createdSec.ID, handlers.UpdateCmsSectionRequest{
+		Title: "Updated Quick Actions Title",
+		ContentPayload: map[string]any{
+			"actions": []string{"add_password"},
+		},
+		StyleConfig:  map[string]any{},
+		DisplayOrder: 5,
+		IsEnabled:    true,
+	}, cookie)
+	if recUpdateSec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for update section, got %d", recUpdateSec.Code)
+	}
+
+	// 4. Navigation: List & Update
+	recNav := doRequest(h, "GET", "/api/v1/admin/cms/navigation", nil, cookie)
+	if recNav.Code != http.StatusOK {
+		t.Fatalf("expected 200 for navigation list, got %d", recNav.Code)
+	}
+	var navItems []domain.CmsNavigationItem
+	_ = json.Unmarshal(recNav.Body.Bytes(), &navItems)
+	if len(navItems) == 0 {
+		t.Fatalf("expected navigation items")
+	}
+
+	targetNav := navItems[0]
+	recUpdateNav := doRequest(h, "PUT", "/api/v1/admin/cms/navigation/"+targetNav.ID, handlers.UpdateCmsNavigationItemRequest{
+		Label:        "My Secure Vaults",
+		DisplayOrder: targetNav.DisplayOrder,
+		IsEnabled:    true,
+	}, cookie)
+	if recUpdateNav.Code != http.StatusOK {
+		t.Fatalf("expected 200 for update navigation item, got %d", recUpdateNav.Code)
+	}
+
+	// 5. Theme Settings
+	recTheme := doRequest(h, "GET", "/api/v1/admin/cms/theme", nil, cookie)
+	if recTheme.Code != http.StatusOK {
+		t.Fatalf("expected 200 for cms theme, got %d", recTheme.Code)
+	}
+
+	recUpdateTheme := doRequest(h, "PUT", "/api/v1/admin/cms/theme", handlers.UpdateCmsThemeRequest{
+		ThemePreset:  "emerald",
+		PrimaryColor: "#10b981",
+		BorderRadius: "0.75rem",
+		Density:      "compact",
+	}, cookie)
+	if recUpdateTheme.Code != http.StatusOK {
+		t.Fatalf("expected 200 for update theme, got %d: %s", recUpdateTheme.Code, recUpdateTheme.Body.String())
+	}
+
+	// 6. Revisions & Restore
+	recRev := doRequest(h, "GET", "/api/v1/admin/cms/revisions", nil, cookie)
+	if recRev.Code != http.StatusOK {
+		t.Fatalf("expected 200 for revisions list, got %d", recRev.Code)
+	}
+	var revs []domain.CmsRevision
+	_ = json.Unmarshal(recRev.Body.Bytes(), &revs)
+	if len(revs) < 2 {
+		t.Fatalf("expected at least 2 revisions after changes, got %d", len(revs))
+	}
+
+	// Restore revision 1
+	recRestore := doRequest(h, "POST", "/api/v1/admin/cms/revisions/1/restore", nil, cookie)
+	if recRestore.Code != http.StatusOK {
+		t.Fatalf("expected 200 for restore revision, got %d: %s", recRestore.Code, recRestore.Body.String())
+	}
+	var restoredConfig domain.AppConfiguration
+	_ = json.Unmarshal(recRestore.Body.Bytes(), &restoredConfig)
+	if restoredConfig.Theme.ThemePreset != "default" {
+		t.Errorf("expected restored theme to be default, got %s", restoredConfig.Theme.ThemePreset)
+	}
+
+	// 7. Delete Section
+	recDelSec := doRequest(h, "DELETE", "/api/v1/admin/cms/sections/"+createdSec.ID, nil, cookie)
+	if recDelSec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for delete section, got %d", recDelSec.Code)
+	}
+}
+
+func TestCmsTenantIsolation(t *testing.T) {
+	h, _ := setupTestServer()
+
+	// Account A
+	pubA := base64.RawURLEncoding.EncodeToString([]byte("pubkey-acc-a-32bytes-for-cms-iso!"))
+	recA := doRequest(h, "POST", "/api/v1/auth/register", handlers.RegisterRequest{
+		Email:              "usera-cms@example.com",
+		DeviceLabel:        "UserA Device",
+		Platform:           "Web",
+		Browser:            "Chrome",
+		PublicKeyAlgorithm: "Ed25519",
+		PublicKey:          pubA,
+		CredentialType:     "external",
+		CredentialID:       "cred-a-cms",
+	}, nil)
+	cookieA := recA.Result().Cookies()[0]
+
+	// Account B
+	pubB := base64.RawURLEncoding.EncodeToString([]byte("pubkey-acc-b-32bytes-for-cms-iso!"))
+	recB := doRequest(h, "POST", "/api/v1/auth/register", handlers.RegisterRequest{
+		Email:              "userb-cms@example.com",
+		DeviceLabel:        "UserB Device",
+		Platform:           "Web",
+		Browser:            "Firefox",
+		PublicKeyAlgorithm: "Ed25519",
+		PublicKey:          pubB,
+		CredentialType:     "external",
+		CredentialID:       "cred-b-cms",
+	}, nil)
+	cookieB := recB.Result().Cookies()[0]
+
+	// Account A creates a custom section
+	recCreateA := doRequest(h, "POST", "/api/v1/admin/cms/sections", handlers.CreateCmsSectionRequest{
+		ScreenKey:      "dashboard",
+		SectionType:    "custom_info",
+		Title:          "User A Confidential Notice",
+		ContentPayload: map[string]any{"text": "Only for user A"},
+		StyleConfig:    map[string]any{},
+		DisplayOrder:   1,
+		IsEnabled:      true,
+	}, cookieA)
+	if recCreateA.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for Account A section creation, got %d", recCreateA.Code)
+	}
+	var secA domain.CmsSection
+	_ = json.Unmarshal(recCreateA.Body.Bytes(), &secA)
+
+	// Account B gets app configuration -> must not see User A's section
+	recConfigB := doRequest(h, "GET", "/api/v1/app/configuration", nil, cookieB)
+	var configB domain.AppConfiguration
+	_ = json.Unmarshal(recConfigB.Body.Bytes(), &configB)
+	for _, sec := range configB.Sections {
+		if sec.ID == secA.ID || sec.Title == "User A Confidential Notice" {
+			t.Fatalf("cross-tenant data leak: Account B sees Account A's section!")
+		}
+	}
+
+	// Account B attempts to update Account A's section -> 404
+	recCrossUpdate := doRequest(h, "PUT", "/api/v1/admin/cms/sections/"+secA.ID, handlers.UpdateCmsSectionRequest{
+		Title:          "Malicious Overwrite",
+		ContentPayload: map[string]any{},
+		StyleConfig:    map[string]any{},
+		DisplayOrder:   1,
+		IsEnabled:      true,
+	}, cookieB)
+	if recCrossUpdate.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-tenant section update, got %d", recCrossUpdate.Code)
+	}
+
+	// Account B attempts to delete Account A's section -> 404
+	recCrossDelete := doRequest(h, "DELETE", "/api/v1/admin/cms/sections/"+secA.ID, nil, cookieB)
+	if recCrossDelete.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-tenant section delete, got %d", recCrossDelete.Code)
+	}
+}

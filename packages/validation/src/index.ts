@@ -305,6 +305,60 @@ export const ProblemSchema = z.strictObject({
   }),
 });
 
+export const CmsModuleSchema = z.strictObject({
+  id: OpaqueIdSchema,
+  moduleKey: z.string().min(1).max(64),
+  displayName: z.string().min(1).max(120),
+  description: z.string().nullable(),
+  iconKey: z.string().min(1).max(64),
+  isEnabled: z.boolean(),
+  displayOrder: z.number().int(),
+  routeKey: z.string().min(1).max(64),
+});
+
+export const CmsSectionSchema = z.strictObject({
+  id: OpaqueIdSchema,
+  screenKey: z.string().min(1).max(64),
+  sectionType: z.string().min(1).max(64),
+  title: z.string().min(1).max(200),
+  contentPayload: z.record(z.string(), z.unknown()),
+  styleConfig: z.record(z.string(), z.unknown()),
+  displayOrder: z.number().int(),
+  isEnabled: z.boolean(),
+});
+
+export const CmsNavigationItemSchema = z.strictObject({
+  id: OpaqueIdSchema,
+  label: z.string().min(1).max(100),
+  routeKey: z.string().min(1).max(64),
+  iconKey: z.string().min(1).max(64),
+  displayOrder: z.number().int(),
+  isEnabled: z.boolean(),
+});
+
+export const CmsThemeSettingsSchema = z.strictObject({
+  themePreset: z.string().min(1).max(64),
+  primaryColor: z.string().min(1).max(32),
+  borderRadius: z.string().min(1).max(16),
+  density: z.string().min(1).max(16),
+});
+
+export const CmsRevisionSchema = z.strictObject({
+  id: OpaqueIdSchema,
+  revisionNumber: z.number().int().positive(),
+  actorDeviceId: z.string().nullable(),
+  changeSummary: z.string(),
+  createdAt: DateTimeSchema,
+});
+
+export const AppConfigurationSchema = z.strictObject({
+  modules: z.array(CmsModuleSchema),
+  navigation: z.array(CmsNavigationItemSchema),
+  sections: z.array(CmsSectionSchema),
+  theme: CmsThemeSettingsSchema,
+  revisionNumber: z.number().int().positive(),
+});
+
 export type VaultKeyEnvelopeInput = z.input<typeof VaultKeyEnvelopeSchema>;
 export type CreateVaultRequestInput = z.input<typeof CreateVaultRequestSchema>;
 export type EncryptedObjectEnvelopeInput = z.input<

@@ -16,7 +16,9 @@ import {
   getVaultKeyEnvelope,
   putVaultKeyEnvelope,
   deleteVault,
+  getAppConfiguration,
 } from "./api";
+import { CmsSectionRenderer } from "./components/CmsSectionRenderer";
 import {
   createVaultKeyEnvelopes,
   unlockWithPassword,
@@ -34,6 +36,7 @@ import {
 import { copyToClipboardWithAutoClear } from "./storage/clipboard";
 import { setupInactivityTracker } from "./storage/inactivity";
 import type {
+  AppConfiguration,
   DecryptedRecord,
   PasswordRecord,
   SecureNoteRecord,
@@ -62,6 +65,7 @@ export function App() {
   const [clipboardToast, setClipboardToast] = useState<string | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [vaults, setVaults] = useState<VaultMetadata[]>([]);
+  const [appConfig, setAppConfig] = useState<AppConfiguration | null>(null);
 
   // In-memory decrypted VEK map: vaultId -> CryptoKey (volatile only, never persisted)
   const [unlockedKeys, setUnlockedKeys] = useState<Record<string, CryptoKey>>(
@@ -179,15 +183,18 @@ export function App() {
       const s = await getSession();
       setSession(s);
       if (s && s.device?.status === "active") {
-        const [devList, vaultList] = await Promise.all([
+        const [devList, vaultList, cfg] = await Promise.all([
           listDevices(),
           listVaults(),
+          getAppConfiguration().catch(() => null),
         ]);
         setDevices(devList.items);
         setVaults(vaultList.items);
+        if (cfg) setAppConfig(cfg);
       } else {
         setDevices([]);
         setVaults([]);
+        setAppConfig(null);
       }
     } catch (err: unknown) {
       if (err instanceof Error) {
@@ -233,12 +240,14 @@ export function App() {
         setSession(s);
         if (s.device?.id) setDeviceId(s.device.id);
       });
-      const [devList, vaultList] = await Promise.all([
+      const [devList, vaultList, cfg] = await Promise.all([
         listDevices(),
         listVaults(),
+        getAppConfiguration().catch(() => null),
       ]);
       setDevices(devList.items);
       setVaults(vaultList.items);
+      if (cfg) setAppConfig(cfg);
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
     }
@@ -258,12 +267,14 @@ export function App() {
         setSession(s);
       });
       if (s.device?.status === "active") {
-        const [devList, vaultList] = await Promise.all([
+        const [devList, vaultList, cfg] = await Promise.all([
           listDevices(),
           listVaults(),
+          getAppConfiguration().catch(() => null),
         ]);
         setDevices(devList.items);
         setVaults(vaultList.items);
+        if (cfg) setAppConfig(cfg);
       }
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
@@ -688,7 +699,13 @@ export function App() {
   }
 
   return (
-    <main>
+    <main
+      style={{
+        ["--primary-color" as string]:
+          appConfig?.theme?.primaryColor || "#1c5230",
+        ["--border-radius" as string]: appConfig?.theme?.borderRadius || "8px",
+      }}
+    >
       <header className="header">
         <div>
           <p className="eyebrow">Personal Digital Vault</p>
@@ -846,6 +863,40 @@ export function App() {
         </section>
       ) : (
         <div>
+          {/* Dynamic Declarative CMS Sections rendered via trusted component registry */}
+          {appConfig?.sections
+            ?.filter((s) => s.screenKey === "vault_overview" && s.isEnabled)
+            .sort((a, b) => a.displayOrder - b.displayOrder)
+            .map((sec) => (
+              <CmsSectionRenderer
+                key={sec.id}
+                section={sec}
+                actions={{
+                  onOpenCreateModal: () => {
+                    if (activeVaultId && unlockedKeys[activeVaultId]) {
+                      setShowCreateRecordModal(true);
+                    } else if (vaults.length > 0) {
+                      setUnlockModal({
+                        vaultId: vaults[0].id,
+                        mode: "password",
+                      });
+                    } else {
+                      setShowCreateVaultModal(true);
+                    }
+                  },
+                  onOpenGenerator: () => setShowGenerator(true),
+                  onLockVault: () => {
+                    if (activeVaultId) {
+                      handleLockVault(activeVaultId);
+                    }
+                  },
+                  recordCount: decryptedRecords.length,
+                  vaultUnlocked:
+                    !!activeVaultId && !!unlockedKeys[activeVaultId],
+                }}
+              />
+            ))}
+
           {/* Phase 4 & 5: Vault Management and Record Engine Section */}
           <section className="card">
             <div className="header" style={{ marginBottom: "1rem" }}>

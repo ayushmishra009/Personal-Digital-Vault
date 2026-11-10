@@ -64,5 +64,21 @@ func BuildRouter(cfg Config) http.Handler {
 	mux.Handle("GET /api/v1/vaults/{vaultId}/envelopes/{envelopeType}", requireActiveSession(handlers.GetVaultKeyEnvelopeHandler(cfg.Repo)))
 	mux.Handle("PUT /api/v1/vaults/{vaultId}/envelopes/{envelopeType}", requireActiveSession(handlers.PutVaultKeyEnvelopeHandler(cfg.Repo)))
 
+	// CMS & Dynamic App Configuration routes (strictly require an active device)
+	cmsH := &handlers.CmsHandler{Repo: cfg.Repo}
+	mux.Handle("GET /api/v1/app/configuration", requireActiveSession(http.HandlerFunc(cmsH.GetAppConfiguration)))
+	mux.Handle("GET /api/v1/admin/cms/modules", requireActiveSession(http.HandlerFunc(cmsH.ListModules)))
+	mux.Handle("PUT /api/v1/admin/cms/modules/{moduleKey}", requireActiveSession(http.HandlerFunc(cmsH.UpdateModule)))
+	mux.Handle("GET /api/v1/admin/cms/sections", requireActiveSession(http.HandlerFunc(cmsH.ListSections)))
+	mux.Handle("POST /api/v1/admin/cms/sections", requireActiveSession(http.HandlerFunc(cmsH.CreateSection)))
+	mux.Handle("PUT /api/v1/admin/cms/sections/{sectionId}", requireActiveSession(http.HandlerFunc(cmsH.UpdateSection)))
+	mux.Handle("DELETE /api/v1/admin/cms/sections/{sectionId}", requireActiveSession(http.HandlerFunc(cmsH.DeleteSection)))
+	mux.Handle("GET /api/v1/admin/cms/navigation", requireActiveSession(http.HandlerFunc(cmsH.ListNavigation)))
+	mux.Handle("PUT /api/v1/admin/cms/navigation/{itemId}", requireActiveSession(http.HandlerFunc(cmsH.UpdateNavigationItem)))
+	mux.Handle("GET /api/v1/admin/cms/theme", requireActiveSession(http.HandlerFunc(cmsH.GetTheme)))
+	mux.Handle("PUT /api/v1/admin/cms/theme", requireActiveSession(http.HandlerFunc(cmsH.UpdateTheme)))
+	mux.Handle("GET /api/v1/admin/cms/revisions", requireActiveSession(http.HandlerFunc(cmsH.ListRevisions)))
+	mux.Handle("POST /api/v1/admin/cms/revisions/{revisionNumber}/restore", requireActiveSession(http.HandlerFunc(cmsH.RestoreRevision)))
+
 	return middleware.Cors(cfg.AllowedOrigins)(mux)
 }

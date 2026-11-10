@@ -20,6 +20,8 @@ tags:
     description: Opaque vault metadata and key envelopes
   - name: Sync
     description: Encrypted object revision synchronization
+  - name: CMS
+    description: Dynamic product configuration and administration
 security: []
 paths:
   /health/live:
@@ -532,6 +534,315 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/app/configuration:
+    get:
+      tags: [CMS]
+      operationId: getAppConfiguration
+      summary: Retrieve the published dynamic app configuration
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Published app configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppConfiguration"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/admin/cms/modules:
+    get:
+      tags: [CMS]
+      operationId: listCmsModules
+      summary: List configurable application modules
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: List of modules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CmsModule"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/admin/cms/modules/{moduleKey}:
+    put:
+      tags: [CMS]
+      operationId: updateCmsModule
+      summary: Update configuration for a specific module
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: moduleKey
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCmsModuleRequest"
+      responses:
+        "200":
+          description: Updated module
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CmsModule"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/admin/cms/sections:
+    get:
+      tags: [CMS]
+      operationId: listCmsSections
+      summary: List configured screen sections
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: screenKey
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of sections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CmsSection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [CMS]
+      operationId: createCmsSection
+      summary: Create a new screen section
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCmsSectionRequest"
+      responses:
+        "201":
+          description: Created section
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CmsSection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/admin/cms/sections/{sectionId}:
+    put:
+      tags: [CMS]
+      operationId: updateCmsSection
+      summary: Update an existing screen section
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: sectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCmsSectionRequest"
+      responses:
+        "200":
+          description: Updated section
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CmsSection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+    delete:
+      tags: [CMS]
+      operationId: deleteCmsSection
+      summary: Delete a screen section
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: sectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Section deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/cms/navigation:
+    get:
+      tags: [CMS]
+      operationId: listCmsNavigation
+      summary: List navigation items
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: List of navigation items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CmsNavigationItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/admin/cms/navigation/{itemId}:
+    put:
+      tags: [CMS]
+      operationId: updateCmsNavigationItem
+      summary: Update a navigation item
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCmsNavigationItemRequest"
+      responses:
+        "200":
+          description: Updated navigation item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CmsNavigationItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/admin/cms/theme:
+    get:
+      tags: [CMS]
+      operationId: getCmsTheme
+      summary: Get active theme settings
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Theme settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CmsThemeSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags: [CMS]
+      operationId: updateCmsTheme
+      summary: Update theme settings
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCmsThemeRequest"
+      responses:
+        "200":
+          description: Updated theme settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CmsThemeSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /api/v1/admin/cms/revisions:
+    get:
+      tags: [CMS]
+      operationId: listCmsRevisions
+      summary: List audit revision history of CMS changes
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: List of revisions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CmsRevision"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/admin/cms/revisions/{revisionNumber}/restore:
+    post:
+      tags: [CMS]
+      operationId: restoreCmsRevision
+      summary: Restore configuration from a prior revision snapshot
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: revisionNumber
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Restored configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppConfiguration"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
 components:
   securitySchemes:
@@ -1156,3 +1467,219 @@ components:
           pattern: "^[0-9]+$"
         hasMore:
           type: boolean
+
+    CmsModule:
+      type: object
+      additionalProperties: false
+      required:
+        [id, moduleKey, displayName, iconKey, isEnabled, displayOrder, routeKey]
+      properties:
+        id:
+          type: string
+          format: uuid
+        moduleKey:
+          type: string
+        displayName:
+          type: string
+        description:
+          type: [string, "null"]
+        iconKey:
+          type: string
+        isEnabled:
+          type: boolean
+        displayOrder:
+          type: integer
+        routeKey:
+          type: string
+
+    UpdateCmsModuleRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName, isEnabled, displayOrder]
+      properties:
+        displayName:
+          type: string
+        description:
+          type: [string, "null"]
+        isEnabled:
+          type: boolean
+        displayOrder:
+          type: integer
+
+    CmsSection:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          screenKey,
+          sectionType,
+          title,
+          contentPayload,
+          styleConfig,
+          displayOrder,
+          isEnabled,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        screenKey:
+          type: string
+        sectionType:
+          type: string
+        title:
+          type: string
+        contentPayload:
+          type: object
+          additionalProperties: true
+        styleConfig:
+          type: object
+          additionalProperties: true
+        displayOrder:
+          type: integer
+        isEnabled:
+          type: boolean
+
+    CreateCmsSectionRequest:
+      type: object
+      additionalProperties: false
+      required: [screenKey, sectionType, title]
+      properties:
+        screenKey:
+          type: string
+        sectionType:
+          type: string
+        title:
+          type: string
+        contentPayload:
+          type: object
+          additionalProperties: true
+        styleConfig:
+          type: object
+          additionalProperties: true
+        displayOrder:
+          type: integer
+          default: 0
+        isEnabled:
+          type: boolean
+          default: true
+
+    UpdateCmsSectionRequest:
+      type: object
+      additionalProperties: false
+      required: [title, isEnabled, displayOrder]
+      properties:
+        title:
+          type: string
+        contentPayload:
+          type: object
+          additionalProperties: true
+        styleConfig:
+          type: object
+          additionalProperties: true
+        displayOrder:
+          type: integer
+        isEnabled:
+          type: boolean
+
+    CmsNavigationItem:
+      type: object
+      additionalProperties: false
+      required: [id, label, routeKey, iconKey, displayOrder, isEnabled]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        routeKey:
+          type: string
+        iconKey:
+          type: string
+        displayOrder:
+          type: integer
+        isEnabled:
+          type: boolean
+
+    UpdateCmsNavigationItemRequest:
+      type: object
+      additionalProperties: false
+      required: [label, displayOrder, isEnabled]
+      properties:
+        label:
+          type: string
+        displayOrder:
+          type: integer
+        isEnabled:
+          type: boolean
+
+    CmsThemeSettings:
+      type: object
+      additionalProperties: false
+      required: [themePreset, primaryColor, borderRadius, density]
+      properties:
+        themePreset:
+          type: string
+        primaryColor:
+          type: string
+        borderRadius:
+          type: string
+        density:
+          type: string
+
+    UpdateCmsThemeRequest:
+      type: object
+      additionalProperties: false
+      required: [themePreset, primaryColor, borderRadius, density]
+      properties:
+        themePreset:
+          type: string
+        primaryColor:
+          type: string
+        borderRadius:
+          type: string
+        density:
+          type: string
+
+    CmsRevision:
+      type: object
+      additionalProperties: false
+      required: [id, revisionNumber, changeSummary, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        revisionNumber:
+          type: integer
+          minimum: 1
+        actorDeviceId:
+          type: [string, "null"]
+        changeSummary:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    AppConfiguration:
+      type: object
+      additionalProperties: false
+      required: [modules, navigation, sections, theme, revisionNumber]
+      properties:
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/CmsModule"
+        navigation:
+          type: array
+          items:
+            $ref: "#/components/schemas/CmsNavigationItem"
+        sections:
+          type: array
+          items:
+            $ref: "#/components/schemas/CmsSection"
+        theme:
+          $ref: "#/components/schemas/CmsThemeSettings"
+        revisionNumber:
+          type: integer
+          minimum: 1

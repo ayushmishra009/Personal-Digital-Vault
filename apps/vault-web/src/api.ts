@@ -1,3 +1,7 @@
+import type { AppConfiguration } from "@pdv/data-models";
+
+export type { AppConfiguration };
+
 export interface Account {
   id: string;
   email: string;
@@ -250,4 +254,11 @@ export async function deleteVault(vaultId: string): Promise<void> {
     credentials: "include",
   });
   return handleResponse<void>(res);
+}
+
+export async function getAppConfiguration(): Promise<AppConfiguration> {
+  const res = await fetch("/api/v1/app/configuration", {
+    credentials: "include",
+  });
+  return handleResponse<AppConfiguration>(res);
 }

@@ -187,6 +187,12 @@ importers:
 
   apps/admin-web:
     dependencies:
+      '@pdv/data-models':
+        specifier: workspace:*
+        version: link:../../packages/data-models
+      '@pdv/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
       '@vitejs/plugin-react':
         specifier: ^5.0.0
         version: 5.2.0(supports-color@10.2.2)(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(lightningcss@1.33.0))

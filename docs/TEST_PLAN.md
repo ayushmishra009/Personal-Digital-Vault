@@ -87,6 +87,30 @@ All Phase 4 verification targets pass in Go backend test suite (`apps/api/intern
 
 All Phase 5 verification targets pass in `apps/vault-web/src/storage/storage.test.ts`.
 
+## Phase 6 CMS & admin foundation verification targets
+
+- Verify `GET /api/v1/app/configuration` returns seeded default modules, navigation items, sections, and theme settings on first account access.
+- Verify module listing and updates (`PUT /api/v1/admin/cms/modules/{moduleKey}`): validates display name, order, and enabled toggle.
+- Verify section CRUD operations (`POST`, `PUT`, `DELETE` on `/api/v1/admin/cms/sections`):
+  - Validates required fields (`screenKey`, `sectionType`, `title`).
+  - Supports filtering by `screenKey`.
+  - Supports ordering and toggling `isEnabled`.
+  - Delete cascades and prevents subsequent retrieval.
+- Verify theme retrieval and updates (`PUT /api/v1/admin/cms/theme`): validates presets, primary color, border radius, and density.
+- Verify configuration revisions and audit logging:
+  - Every administrative mutation generates an incremental revision snapshot in `cms_revisions` with a human-readable change summary.
+  - `POST /api/v1/admin/cms/revisions/{revisionNumber}/restore` cleanly restores prior snapshots.
+- Verify cross-account tenant isolation:
+  - Account B cannot view Account A's custom sections, navigation items, or theme settings.
+  - Account B cannot update or delete Account A's sections (returns 404 Not Found).
+- Verify frontend declarative component registry (`CmsSectionRenderer`):
+  - Renders whitelisted components (`welcome`, `summary`, `quick_actions`, `recent_items`, `vault_cards`, `custom_info`, `help_panel`).
+  - Ignores disabled sections without rendering.
+  - Safely ignores untrusted or unknown section types without throwing errors or executing scripts.
+  - Escapes all text content; rejects raw HTML injection and XSS attempts in `custom_info` and title fields.
+
+All Phase 6 verification targets pass in `apps/api/internal/router` (`TestCmsEndpointsAndSeeding`, `TestCmsTenantIsolation`) and `apps/vault-web/src/components/CmsSectionRenderer.test.tsx`.
+
 ## Later security and product coverage
 
 Follow the master specification's crypto known-answer and negative tests, backend authorization/tenant isolation tests, offline/conflict tests, CMS schema/revision tests, attachment ciphertext checks, extension origin-boundary tests, and end-to-end flows. Round-trip crypto tests alone are insufficient. Do not use production data in tests.

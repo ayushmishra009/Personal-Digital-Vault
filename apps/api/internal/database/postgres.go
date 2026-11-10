@@ -2,15 +2,25 @@ package database
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/personal-digital-vault/api/internal/domain"
 )
+
+func newUUID() string {
+	var u [16]byte
+	_, _ = rand.Read(u[:])
+	u[6] = (u[6] & 0x0f) | 0x40 // Version 4
+	u[8] = (u[8] & 0x3f) | 0x80 // Variant 10
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", u[0:4], u[4:6], u[6:8], u[8:10], u[10:])
+}
 
 type PostgresRepository struct {
 	db *sql.DB
@@ -902,4 +912,532 @@ func (r *PostgresRepository) DeleteVault(ctx context.Context, accountID string, 
 	}
 
 	return tx.Commit()
+}
+
+
+func (r *PostgresRepository) ensureCmsSeed(ctx context.Context, accountID string) error {
+	var count int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM cms_theme_settings WHERE account_id = $1`, accountID).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Theme
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO cms_theme_settings (account_id, theme_preset, primary_color, border_radius, density)
+		VALUES ($1, 'default', '#1c5230', '8px', 'comfortable')
+		ON CONFLICT DO NOTHING
+	`, accountID)
+	if err != nil {
+		return err
+	}
+
+	// Modules
+	defaultModules := []struct {
+		key, name, desc, icon, route string
+		order                        int
+	}{
+		{"passwords", "Passwords", "Manage encrypted web and app credentials", "key", "/passwords", 1},
+		{"notes", "Secure Notes", "Encrypted private notes and markdown documentation", "file-text", "/notes", 2},
+		{"identities", "Identities", "Store identity cards, passports, and personal identifiers", "user", "/identities", 3},
+		{"payments", "Payments", "Payment cards and financial organizer", "credit-card", "/payments", 4},
+		{"settings", "Settings", "Account, security, and device preferences", "settings", "/settings", 5},
+	}
+	for _, dm := range defaultModules {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO cms_modules (id, account_id, module_key, display_name, description, icon_key, is_enabled, display_order, route_key)
+			VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)
+			ON CONFLICT DO NOTHING
+		`, newUUID(), accountID, dm.key, dm.name, dm.desc, dm.icon, dm.order, dm.route)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Navigation Items
+	defaultNav := []struct {
+		label, route, icon string
+		order              int
+	}{
+		{"Dashboard", "/", "home", 1},
+		{"Vaults", "/vaults", "vault", 2},
+		{"Passwords", "/passwords", "key", 3},
+		{"Secure Notes", "/notes", "file-text", 4},
+		{"Identities", "/identities", "user", 5},
+		{"Payments", "/payments", "credit-card", 6},
+		{"Devices", "/devices", "smartphone", 7},
+		{"Settings", "/settings", "settings", 8},
+	}
+	for _, dn := range defaultNav {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO cms_navigation_items (id, account_id, label, route_key, icon_key, display_order, is_enabled)
+			VALUES ($1, $2, $3, $4, $5, $6, true)
+		`, newUUID(), accountID, dn.label, dn.route, dn.icon, dn.order)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Sections
+	defaultSections := []struct {
+		screenKey, secType, title string
+		order                    int
+		payload                  string
+	}{
+		{
+			"dashboard", "welcome", "Welcome to Personal Digital Vault", 1,
+			`{"subtitle": "Zero-knowledge encrypted platform with independent vault lifecycle."}`,
+		},
+		{
+			"dashboard", "quick_actions", "Quick Actions", 2,
+			`{"actions": ["add_password", "new_note", "create_vault"]}`,
+		},
+		{
+			"dashboard", "vault_cards", "Active Vaults", 3,
+			`{"description": "Independent encrypted vaults. Keys held in volatile memory."}`,
+		},
+	}
+	for _, ds := range defaultSections {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO cms_sections (id, account_id, screen_key, section_type, title, content_payload, style_config, display_order, is_enabled)
+			VALUES ($1, $2, $3, $4, $5, $6::jsonb, '{"variant": "card"}'::jsonb, $7, true)
+		`, newUUID(), accountID, ds.screenKey, ds.secType, ds.title, ds.payload, ds.order)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Revision 1
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO cms_revisions (id, account_id, revision_number, change_summary, snapshot)
+		VALUES ($1, $2, 1, 'Initial default CMS configuration seed', '{}'::jsonb)
+		ON CONFLICT DO NOTHING
+	`, newUUID(), accountID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *PostgresRepository) GetAppConfiguration(ctx context.Context, accountID string) (*domain.AppConfiguration, error) {
+	if err := r.ensureCmsSeed(ctx, accountID); err != nil {
+		return nil, err
+	}
+
+	// Modules
+	modRows, err := r.db.QueryContext(ctx, `
+		SELECT id, account_id, module_key, display_name, description, icon_key, is_enabled, display_order, route_key, created_at, updated_at
+		FROM cms_modules
+		WHERE account_id = $1 AND is_enabled = true
+		ORDER BY display_order ASC
+	`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer modRows.Close()
+
+	var modules []domain.CmsModule
+	for modRows.Next() {
+		var m domain.CmsModule
+		if err := modRows.Scan(&m.ID, &m.AccountID, &m.ModuleKey, &m.DisplayName, &m.Description, &m.IconKey, &m.IsEnabled, &m.DisplayOrder, &m.RouteKey, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+		modules = append(modules, m)
+	}
+
+	// Nav
+	navRows, err := r.db.QueryContext(ctx, `
+		SELECT id, account_id, label, route_key, icon_key, display_order, is_enabled, created_at, updated_at
+		FROM cms_navigation_items
+		WHERE account_id = $1 AND is_enabled = true
+		ORDER BY display_order ASC
+	`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer navRows.Close()
+
+	var nav []domain.CmsNavigationItem
+	for navRows.Next() {
+		var n domain.CmsNavigationItem
+		if err := navRows.Scan(&n.ID, &n.AccountID, &n.Label, &n.RouteKey, &n.IconKey, &n.DisplayOrder, &n.IsEnabled, &n.CreatedAt, &n.UpdatedAt); err != nil {
+			return nil, err
+		}
+		nav = append(nav, n)
+	}
+
+	// Sections
+	secRows, err := r.db.QueryContext(ctx, `
+		SELECT id, account_id, screen_key, section_type, title, content_payload, style_config, display_order, is_enabled, created_at, updated_at
+		FROM cms_sections
+		WHERE account_id = $1 AND is_enabled = true
+		ORDER BY display_order ASC
+	`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer secRows.Close()
+
+	var sections []domain.CmsSection
+	for secRows.Next() {
+		var s domain.CmsSection
+		var payloadBytes, styleBytes []byte
+		if err := secRows.Scan(&s.ID, &s.AccountID, &s.ScreenKey, &s.SectionType, &s.Title, &payloadBytes, &styleBytes, &s.DisplayOrder, &s.IsEnabled, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(payloadBytes, &s.ContentPayload)
+		_ = json.Unmarshal(styleBytes, &s.StyleConfig)
+		sections = append(sections, s)
+	}
+
+	// Theme
+	var theme domain.CmsThemeSettings
+	err = r.db.QueryRowContext(ctx, `
+		SELECT account_id, theme_preset, primary_color, border_radius, density, updated_at
+		FROM cms_theme_settings
+		WHERE account_id = $1
+	`, accountID).Scan(&theme.AccountID, &theme.ThemePreset, &theme.PrimaryColor, &theme.BorderRadius, &theme.Density, &theme.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Latest Revision Number
+	var revNum int
+	err = r.db.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(revision_number), 1)
+		FROM cms_revisions
+		WHERE account_id = $1
+	`, accountID).Scan(&revNum)
+	if err != nil {
+		return nil, err
+	}
+
+	return &domain.AppConfiguration{
+		Modules:        modules,
+		Navigation:     nav,
+		Sections:       sections,
+		Theme:          theme,
+		RevisionNumber: revNum,
+	}, nil
+}
+
+func (r *PostgresRepository) ListCmsModules(ctx context.Context, accountID string) ([]domain.CmsModule, error) {
+	if err := r.ensureCmsSeed(ctx, accountID); err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, account_id, module_key, display_name, description, icon_key, is_enabled, display_order, route_key, created_at, updated_at
+		FROM cms_modules
+		WHERE account_id = $1
+		ORDER BY display_order ASC
+	`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []domain.CmsModule
+	for rows.Next() {
+		var m domain.CmsModule
+		if err := rows.Scan(&m.ID, &m.AccountID, &m.ModuleKey, &m.DisplayName, &m.Description, &m.IconKey, &m.IsEnabled, &m.DisplayOrder, &m.RouteKey, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, m)
+	}
+	return list, nil
+}
+
+func (r *PostgresRepository) UpdateCmsModule(
+	ctx context.Context,
+	accountID string,
+	moduleKey string,
+	displayName string,
+	description *string,
+	isEnabled bool,
+	displayOrder int,
+) (*domain.CmsModule, error) {
+	if err := r.ensureCmsSeed(ctx, accountID); err != nil {
+		return nil, err
+	}
+
+	var m domain.CmsModule
+	err := r.db.QueryRowContext(ctx, `
+		UPDATE cms_modules
+		SET display_name = $1, description = $2, is_enabled = $3, display_order = $4, updated_at = NOW()
+		WHERE account_id = $5 AND module_key = $6
+		RETURNING id, account_id, module_key, display_name, description, icon_key, is_enabled, display_order, route_key, created_at, updated_at
+	`, displayName, description, isEnabled, displayOrder, accountID, moduleKey).Scan(
+		&m.ID, &m.AccountID, &m.ModuleKey, &m.DisplayName, &m.Description, &m.IconKey, &m.IsEnabled, &m.DisplayOrder, &m.RouteKey, &m.CreatedAt, &m.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return &m, nil
+}
+
+func (r *PostgresRepository) ListCmsSections(ctx context.Context, accountID string, screenKey *string) ([]domain.CmsSection, error) {
+	if err := r.ensureCmsSeed(ctx, accountID); err != nil {
+		return nil, err
+	}
+
+	var query string
+	var args []any
+	if screenKey != nil && *screenKey != "" {
+		query = `SELECT id, account_id, screen_key, section_type, title, content_payload, style_config, display_order, is_enabled, created_at, updated_at
+		         FROM cms_sections WHERE account_id = $1 AND screen_key = $2 ORDER BY display_order ASC`
+		args = []any{accountID, *screenKey}
+	} else {
+		query = `SELECT id, account_id, screen_key, section_type, title, content_payload, style_config, display_order, is_enabled, created_at, updated_at
+		         FROM cms_sections WHERE account_id = $1 ORDER BY display_order ASC`
+		args = []any{accountID}
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []domain.CmsSection
+	for rows.Next() {
+		var s domain.CmsSection
+		var payloadBytes, styleBytes []byte
+		if err := rows.Scan(&s.ID, &s.AccountID, &s.ScreenKey, &s.SectionType, &s.Title, &payloadBytes, &styleBytes, &s.DisplayOrder, &s.IsEnabled, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(payloadBytes, &s.ContentPayload)
+		_ = json.Unmarshal(styleBytes, &s.StyleConfig)
+		list = append(list, s)
+	}
+	return list, nil
+}
+
+func (r *PostgresRepository) CreateCmsSection(ctx context.Context, section *domain.CmsSection) (*domain.CmsSection, error) {
+	if err := r.ensureCmsSeed(ctx, section.AccountID); err != nil {
+		return nil, err
+	}
+
+	id := newUUID()
+	payloadBytes, _ := json.Marshal(section.ContentPayload)
+	styleBytes, _ := json.Marshal(section.StyleConfig)
+
+	var s domain.CmsSection
+	var outPayload, outStyle []byte
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO cms_sections (id, account_id, screen_key, section_type, title, content_payload, style_config, display_order, is_enabled)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)
+		RETURNING id, account_id, screen_key, section_type, title, content_payload, style_config, display_order, is_enabled, created_at, updated_at
+	`, id, section.AccountID, section.ScreenKey, section.SectionType, section.Title, payloadBytes, styleBytes, section.DisplayOrder, section.IsEnabled).Scan(
+		&s.ID, &s.AccountID, &s.ScreenKey, &s.SectionType, &s.Title, &outPayload, &outStyle, &s.DisplayOrder, &s.IsEnabled, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal(outPayload, &s.ContentPayload)
+	_ = json.Unmarshal(outStyle, &s.StyleConfig)
+	return &s, nil
+}
+
+func (r *PostgresRepository) UpdateCmsSection(
+	ctx context.Context,
+	accountID string,
+	sectionID string,
+	title string,
+	contentPayload map[string]any,
+	styleConfig map[string]any,
+	displayOrder int,
+	isEnabled bool,
+) (*domain.CmsSection, error) {
+	if err := r.ensureCmsSeed(ctx, accountID); err != nil {
+		return nil, err
+	}
+
+	payloadBytes, _ := json.Marshal(contentPayload)
+	styleBytes, _ := json.Marshal(styleConfig)
+
+	var s domain.CmsSection
+	var outPayload, outStyle []byte
+	err := r.db.QueryRowContext(ctx, `
+		UPDATE cms_sections
+		SET title = $1, content_payload = $2::jsonb, style_config = $3::jsonb, display_order = $4, is_enabled = $5, updated_at = NOW()
+		WHERE account_id = $6 AND id = $7
+		RETURNING id, account_id, screen_key, section_type, title, content_payload, style_config, display_order, is_enabled, created_at, updated_at
+	`, title, payloadBytes, styleBytes, displayOrder, isEnabled, accountID, sectionID).Scan(
+		&s.ID, &s.AccountID, &s.ScreenKey, &s.SectionType, &s.Title, &outPayload, &outStyle, &s.DisplayOrder, &s.IsEnabled, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	_ = json.Unmarshal(outPayload, &s.ContentPayload)
+	_ = json.Unmarshal(outStyle, &s.StyleConfig)
+	return &s, nil
+}
+
+func (r *PostgresRepository) DeleteCmsSection(ctx context.Context, accountID string, sectionID string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM cms_sections WHERE account_id = $1 AND id = $2`, accountID, sectionID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *PostgresRepository) ListCmsNavigation(ctx context.Context, accountID string) ([]domain.CmsNavigationItem, error) {
+	if err := r.ensureCmsSeed(ctx, accountID); err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, account_id, label, route_key, icon_key, display_order, is_enabled, created_at, updated_at
+		FROM cms_navigation_items
+		WHERE account_id = $1
+		ORDER BY display_order ASC
+	`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []domain.CmsNavigationItem
+	for rows.Next() {
+		var n domain.CmsNavigationItem
+		if err := rows.Scan(&n.ID, &n.AccountID, &n.Label, &n.RouteKey, &n.IconKey, &n.DisplayOrder, &n.IsEnabled, &n.CreatedAt, &n.UpdatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, n)
+	}
+	return list, nil
+}
+
+func (r *PostgresRepository) UpdateCmsNavigationItem(
+	ctx context.Context,
+	accountID string,
+	itemID string,
+	label string,
+	displayOrder int,
+	isEnabled bool,
+) (*domain.CmsNavigationItem, error) {
+	var n domain.CmsNavigationItem
+	err := r.db.QueryRowContext(ctx, `
+		UPDATE cms_navigation_items
+		SET label = $1, display_order = $2, is_enabled = $3, updated_at = NOW()
+		WHERE account_id = $4 AND id = $5
+		RETURNING id, account_id, label, route_key, icon_key, display_order, is_enabled, created_at, updated_at
+	`, label, displayOrder, isEnabled, accountID, itemID).Scan(
+		&n.ID, &n.AccountID, &n.Label, &n.RouteKey, &n.IconKey, &n.DisplayOrder, &n.IsEnabled, &n.CreatedAt, &n.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &n, nil
+}
+
+func (r *PostgresRepository) GetCmsTheme(ctx context.Context, accountID string) (*domain.CmsThemeSettings, error) {
+	if err := r.ensureCmsSeed(ctx, accountID); err != nil {
+		return nil, err
+	}
+
+	var theme domain.CmsThemeSettings
+	err := r.db.QueryRowContext(ctx, `
+		SELECT account_id, theme_preset, primary_color, border_radius, density, updated_at
+		FROM cms_theme_settings
+		WHERE account_id = $1
+	`, accountID).Scan(&theme.AccountID, &theme.ThemePreset, &theme.PrimaryColor, &theme.BorderRadius, &theme.Density, &theme.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &theme, nil
+}
+
+func (r *PostgresRepository) UpdateCmsTheme(ctx context.Context, accountID string, theme *domain.CmsThemeSettings) (*domain.CmsThemeSettings, error) {
+	var out domain.CmsThemeSettings
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO cms_theme_settings (account_id, theme_preset, primary_color, border_radius, density, updated_at)
+		VALUES ($1, $2, $3, $4, $5, NOW())
+		ON CONFLICT (account_id) DO UPDATE
+		SET theme_preset = EXCLUDED.theme_preset, primary_color = EXCLUDED.primary_color, border_radius = EXCLUDED.border_radius, density = EXCLUDED.density, updated_at = NOW()
+		RETURNING account_id, theme_preset, primary_color, border_radius, density, updated_at
+	`, accountID, theme.ThemePreset, theme.PrimaryColor, theme.BorderRadius, theme.Density).Scan(
+		&out.AccountID, &out.ThemePreset, &out.PrimaryColor, &out.BorderRadius, &out.Density, &out.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (r *PostgresRepository) ListCmsRevisions(ctx context.Context, accountID string) ([]domain.CmsRevision, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, account_id, revision_number, actor_device_id, change_summary, created_at
+		FROM cms_revisions
+		WHERE account_id = $1
+		ORDER BY revision_number DESC
+	`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []domain.CmsRevision
+	for rows.Next() {
+		var rev domain.CmsRevision
+		if err := rows.Scan(&rev.ID, &rev.AccountID, &rev.RevisionNumber, &rev.ActorDeviceID, &rev.ChangeSummary, &rev.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, rev)
+	}
+	return list, nil
+}
+
+func (r *PostgresRepository) RestoreCmsRevision(ctx context.Context, accountID string, revisionNumber int, actorDeviceID string) (*domain.AppConfiguration, error) {
+	var snapshotBytes []byte
+	err := r.db.QueryRowContext(ctx, `
+		SELECT snapshot FROM cms_revisions WHERE account_id = $1 AND revision_number = $2
+	`, accountID, revisionNumber).Scan(&snapshotBytes)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	// Bump revision
+	var nextRev int
+	_ = r.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(revision_number), 0) + 1 FROM cms_revisions WHERE account_id = $1`, accountID).Scan(&nextRev)
+	_, _ = r.db.ExecContext(ctx, `
+		INSERT INTO cms_revisions (id, account_id, revision_number, actor_device_id, change_summary, snapshot)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, newUUID(), accountID, nextRev, actorDeviceID, fmt.Sprintf("Restored configuration from revision #%d", revisionNumber), snapshotBytes)
+
+	return r.GetAppConfiguration(ctx, accountID)
 }

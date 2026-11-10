@@ -11,6 +11,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@pdv/data-models": "workspace:*",
+    "@pdv/validation": "workspace:*",
     "@vitejs/plugin-react": "^5.0.0",
     "vite": "^7.0.0",
     "react": "^19.1.0",

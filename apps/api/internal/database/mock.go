@@ -21,8 +21,13 @@ type MockRepository struct {
 	devices        map[string]*domain.Device // accountID:deviceID -> dev
 	enrollments    map[string]*domain.DeviceEnrollment // accountID:enrollmentID -> enrollment
 	sessions       map[string]*domain.Session // hex(tokenHash) -> session
-	vaults         map[string]*domain.Vault // accountID:vaultID -> vault
+	vaults         map[string]*domain.Vault            // accountID:vaultID -> vault
 	vaultEnvelopes map[string]*domain.VaultKeyEnvelope // accountID:vaultID:type -> env
+	cmsModules     map[string]*domain.CmsModule        // accountID:moduleKey -> module
+	cmsSections    map[string]*domain.CmsSection       // accountID:sectionID -> section
+	cmsNav         map[string]*domain.CmsNavigationItem // accountID:itemID -> item
+	cmsThemes      map[string]*domain.CmsThemeSettings // accountID -> theme
+	cmsRevisions   map[string][]*domain.CmsRevision    // accountID -> []revision
 	seq            int
 }
 
@@ -36,6 +41,11 @@ func NewMockRepository() *MockRepository {
 		sessions:       make(map[string]*domain.Session),
 		vaults:         make(map[string]*domain.Vault),
 		vaultEnvelopes: make(map[string]*domain.VaultKeyEnvelope),
+		cmsModules:     make(map[string]*domain.CmsModule),
+		cmsSections:    make(map[string]*domain.CmsSection),
+		cmsNav:         make(map[string]*domain.CmsNavigationItem),
+		cmsThemes:      make(map[string]*domain.CmsThemeSettings),
+		cmsRevisions:   make(map[string][]*domain.CmsRevision),
 	}
 }
 
@@ -476,3 +486,502 @@ func (m *MockRepository) DeleteVault(ctx context.Context, accountID string, vaul
 	v.DeletedAt = &now
 	return nil
 }
+
+func (m *MockRepository) ensureCmsSeed(accountID string) {
+	if _, ok := m.cmsThemes[accountID]; ok {
+		return
+	}
+
+	now := time.Now().UTC()
+
+	// Theme
+	m.cmsThemes[accountID] = &domain.CmsThemeSettings{
+		AccountID:    accountID,
+		ThemePreset:  "default",
+		PrimaryColor: "#1c5230",
+		BorderRadius: "8px",
+		Density:      "comfortable",
+		UpdatedAt:    now,
+	}
+
+	// Modules
+	defaultModules := []struct {
+		key, name, desc, icon, route string
+		order                        int
+	}{
+		{"passwords", "Passwords", "Manage encrypted web and app credentials", "key", "/passwords", 1},
+		{"notes", "Secure Notes", "Encrypted private notes and markdown documentation", "file-text", "/notes", 2},
+		{"identities", "Identities", "Store identity cards, passports, and personal identifiers", "user", "/identities", 3},
+		{"payments", "Payments", "Payment cards and financial organizer", "credit-card", "/payments", 4},
+		{"settings", "Settings", "Account, security, and device preferences", "settings", "/settings", 5},
+	}
+	for _, dm := range defaultModules {
+		mod := &domain.CmsModule{
+			ID:           m.nextID("mod"),
+			AccountID:    accountID,
+			ModuleKey:    dm.key,
+			DisplayName:  dm.name,
+			Description:  &dm.desc,
+			IconKey:      dm.icon,
+			IsEnabled:    true,
+			DisplayOrder: dm.order,
+			RouteKey:     dm.route,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+		m.cmsModules[accountID+":"+dm.key] = mod
+	}
+
+	// Navigation Items
+	defaultNav := []struct {
+		label, route, icon string
+		order              int
+	}{
+		{"Dashboard", "/", "home", 1},
+		{"Vaults", "/vaults", "vault", 2},
+		{"Passwords", "/passwords", "key", 3},
+		{"Secure Notes", "/notes", "file-text", 4},
+		{"Identities", "/identities", "user", 5},
+		{"Payments", "/payments", "credit-card", 6},
+		{"Devices", "/devices", "smartphone", 7},
+		{"Settings", "/settings", "settings", 8},
+	}
+	for _, dn := range defaultNav {
+		navID := m.nextID("nav")
+		m.cmsNav[accountID+":"+navID] = &domain.CmsNavigationItem{
+			ID:           navID,
+			AccountID:    accountID,
+			Label:        dn.label,
+			RouteKey:     dn.route,
+			IconKey:      dn.icon,
+			DisplayOrder: dn.order,
+			IsEnabled:    true,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+	}
+
+	// Sections for Dashboard
+	defaultSections := []struct {
+		screenKey, secType, title string
+		order                    int
+		payload                  map[string]any
+	}{
+		{
+			"dashboard", "welcome", "Welcome to Personal Digital Vault", 1,
+			map[string]any{"subtitle": "Zero-knowledge encrypted platform with independent vault lifecycle."},
+		},
+		{
+			"dashboard", "quick_actions", "Quick Actions", 2,
+			map[string]any{"actions": []any{"add_password", "new_note", "create_vault"}},
+		},
+		{
+			"dashboard", "vault_cards", "Active Vaults", 3,
+			map[string]any{"description": "Independent encrypted vaults. Keys held in volatile memory."},
+		},
+	}
+	for _, ds := range defaultSections {
+		secID := m.nextID("sec")
+		m.cmsSections[accountID+":"+secID] = &domain.CmsSection{
+			ID:             secID,
+			AccountID:      accountID,
+			ScreenKey:      ds.screenKey,
+			SectionType:    ds.secType,
+			Title:          ds.title,
+			ContentPayload: ds.payload,
+			StyleConfig:    map[string]any{"variant": "card"},
+			DisplayOrder:   ds.order,
+			IsEnabled:      true,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+	}
+
+	// Initial Revision #1
+	m.recordCmsRevisionLocked(accountID, nil, "Initial default CMS configuration seed")
+}
+
+func (m *MockRepository) recordCmsRevisionLocked(accountID string, actorDeviceID *string, summary string) *domain.CmsRevision {
+	revNum := len(m.cmsRevisions[accountID]) + 1
+	revID := m.nextID("rev")
+	now := time.Now().UTC()
+
+	// Snapshot
+	snapshot := map[string]any{
+		"modules":    m.listModulesLocked(accountID),
+		"navigation": m.listNavLocked(accountID),
+		"sections":   m.listSectionsLocked(accountID, nil),
+		"theme":      m.cmsThemes[accountID],
+	}
+
+	rev := &domain.CmsRevision{
+		ID:             revID,
+		AccountID:      accountID,
+		RevisionNumber: revNum,
+		ActorDeviceID:  actorDeviceID,
+		ChangeSummary:  summary,
+		Snapshot:       snapshot,
+		CreatedAt:      now,
+	}
+	m.cmsRevisions[accountID] = append(m.cmsRevisions[accountID], rev)
+	return rev
+}
+
+func (m *MockRepository) listModulesLocked(accountID string) []domain.CmsModule {
+	var list []domain.CmsModule
+	prefix := accountID + ":"
+	for k, mod := range m.cmsModules {
+		if strings.HasPrefix(k, prefix) {
+			list = append(list, *mod)
+		}
+	}
+	// Sort by display order
+	for i := 0; i < len(list); i++ {
+		for j := i + 1; j < len(list); j++ {
+			if list[i].DisplayOrder > list[j].DisplayOrder {
+				list[i], list[j] = list[j], list[i]
+			}
+		}
+	}
+	return list
+}
+
+func (m *MockRepository) listNavLocked(accountID string) []domain.CmsNavigationItem {
+	var list []domain.CmsNavigationItem
+	prefix := accountID + ":"
+	for k, item := range m.cmsNav {
+		if strings.HasPrefix(k, prefix) {
+			list = append(list, *item)
+		}
+	}
+	for i := 0; i < len(list); i++ {
+		for j := i + 1; j < len(list); j++ {
+			if list[i].DisplayOrder > list[j].DisplayOrder {
+				list[i], list[j] = list[j], list[i]
+			}
+		}
+	}
+	return list
+}
+
+func (m *MockRepository) listSectionsLocked(accountID string, screenKey *string) []domain.CmsSection {
+	var list []domain.CmsSection
+	prefix := accountID + ":"
+	for k, sec := range m.cmsSections {
+		if strings.HasPrefix(k, prefix) {
+			if screenKey == nil || sec.ScreenKey == *screenKey {
+				list = append(list, *sec)
+			}
+		}
+	}
+	for i := 0; i < len(list); i++ {
+		for j := i + 1; j < len(list); j++ {
+			if list[i].DisplayOrder > list[j].DisplayOrder {
+				list[i], list[j] = list[j], list[i]
+			}
+		}
+	}
+	return list
+}
+
+func (m *MockRepository) GetAppConfiguration(ctx context.Context, accountID string) (*domain.AppConfiguration, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+
+	mods := m.listModulesLocked(accountID)
+	var enabledMods []domain.CmsModule
+	for _, mod := range mods {
+		if mod.IsEnabled {
+			enabledMods = append(enabledMods, mod)
+		}
+	}
+
+	nav := m.listNavLocked(accountID)
+	var enabledNav []domain.CmsNavigationItem
+	for _, n := range nav {
+		if n.IsEnabled {
+			enabledNav = append(enabledNav, n)
+		}
+	}
+
+	sections := m.listSectionsLocked(accountID, nil)
+	var enabledSections []domain.CmsSection
+	for _, s := range sections {
+		if s.IsEnabled {
+			enabledSections = append(enabledSections, s)
+		}
+	}
+
+	theme := *m.cmsThemes[accountID]
+	revNum := len(m.cmsRevisions[accountID])
+
+	return &domain.AppConfiguration{
+		Modules:        enabledMods,
+		Navigation:     enabledNav,
+		Sections:       enabledSections,
+		Theme:          theme,
+		RevisionNumber: revNum,
+	}, nil
+}
+
+func (m *MockRepository) ListCmsModules(ctx context.Context, accountID string) ([]domain.CmsModule, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+	return m.listModulesLocked(accountID), nil
+}
+
+func (m *MockRepository) UpdateCmsModule(
+	ctx context.Context,
+	accountID string,
+	moduleKey string,
+	displayName string,
+	description *string,
+	isEnabled bool,
+	displayOrder int,
+) (*domain.CmsModule, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+	mod, ok := m.cmsModules[accountID+":"+moduleKey]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	mod.DisplayName = displayName
+	mod.Description = description
+	mod.IsEnabled = isEnabled
+	mod.DisplayOrder = displayOrder
+	mod.UpdatedAt = time.Now().UTC()
+
+	m.recordCmsRevisionLocked(accountID, nil, fmt.Sprintf("Updated module '%s'", moduleKey))
+	ret := *mod
+	return &ret, nil
+}
+
+func (m *MockRepository) ListCmsSections(ctx context.Context, accountID string, screenKey *string) ([]domain.CmsSection, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+	return m.listSectionsLocked(accountID, screenKey), nil
+}
+
+func (m *MockRepository) CreateCmsSection(ctx context.Context, section *domain.CmsSection) (*domain.CmsSection, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(section.AccountID)
+	now := time.Now().UTC()
+	secID := m.nextID("sec")
+
+	stored := *section
+	stored.ID = secID
+	stored.CreatedAt = now
+	stored.UpdatedAt = now
+	if stored.ContentPayload == nil {
+		stored.ContentPayload = make(map[string]any)
+	}
+	if stored.StyleConfig == nil {
+		stored.StyleConfig = make(map[string]any)
+	}
+
+	m.cmsSections[section.AccountID+":"+secID] = &stored
+	m.recordCmsRevisionLocked(section.AccountID, nil, fmt.Sprintf("Created section '%s'", stored.Title))
+	ret := stored
+	return &ret, nil
+}
+
+func (m *MockRepository) UpdateCmsSection(
+	ctx context.Context,
+	accountID string,
+	sectionID string,
+	title string,
+	contentPayload map[string]any,
+	styleConfig map[string]any,
+	displayOrder int,
+	isEnabled bool,
+) (*domain.CmsSection, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+	sec, ok := m.cmsSections[accountID+":"+sectionID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	sec.Title = title
+	if contentPayload != nil {
+		sec.ContentPayload = contentPayload
+	}
+	if styleConfig != nil {
+		sec.StyleConfig = styleConfig
+	}
+	sec.DisplayOrder = displayOrder
+	sec.IsEnabled = isEnabled
+	sec.UpdatedAt = time.Now().UTC()
+
+	m.recordCmsRevisionLocked(accountID, nil, fmt.Sprintf("Updated section '%s'", title))
+	ret := *sec
+	return &ret, nil
+}
+
+func (m *MockRepository) DeleteCmsSection(ctx context.Context, accountID string, sectionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+	sec, ok := m.cmsSections[accountID+":"+sectionID]
+	if !ok {
+		return ErrNotFound
+	}
+
+	delete(m.cmsSections, accountID+":"+sectionID)
+	m.recordCmsRevisionLocked(accountID, nil, fmt.Sprintf("Deleted section '%s'", sec.Title))
+	return nil
+}
+
+func (m *MockRepository) ListCmsNavigation(ctx context.Context, accountID string) ([]domain.CmsNavigationItem, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+	return m.listNavLocked(accountID), nil
+}
+
+func (m *MockRepository) UpdateCmsNavigationItem(
+	ctx context.Context,
+	accountID string,
+	itemID string,
+	label string,
+	displayOrder int,
+	isEnabled bool,
+) (*domain.CmsNavigationItem, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+	item, ok := m.cmsNav[accountID+":"+itemID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	item.Label = label
+	item.DisplayOrder = displayOrder
+	item.IsEnabled = isEnabled
+	item.UpdatedAt = time.Now().UTC()
+
+	m.recordCmsRevisionLocked(accountID, nil, fmt.Sprintf("Updated navigation item '%s'", label))
+	ret := *item
+	return &ret, nil
+}
+
+func (m *MockRepository) GetCmsTheme(ctx context.Context, accountID string) (*domain.CmsThemeSettings, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+	ret := *m.cmsThemes[accountID]
+	return &ret, nil
+}
+
+func (m *MockRepository) UpdateCmsTheme(ctx context.Context, accountID string, theme *domain.CmsThemeSettings) (*domain.CmsThemeSettings, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+	theme.AccountID = accountID
+	theme.UpdatedAt = time.Now().UTC()
+	m.cmsThemes[accountID] = theme
+
+	m.recordCmsRevisionLocked(accountID, nil, fmt.Sprintf("Updated theme preset to '%s'", theme.ThemePreset))
+	ret := *theme
+	return &ret, nil
+}
+
+func (m *MockRepository) ListCmsRevisions(ctx context.Context, accountID string) ([]domain.CmsRevision, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+	var list []domain.CmsRevision
+	revs := m.cmsRevisions[accountID]
+	for i := len(revs) - 1; i >= 0; i-- {
+		r := *revs[i]
+		r.Snapshot = nil // do not serialize huge snapshot in list view
+		list = append(list, r)
+	}
+	return list, nil
+}
+
+func (m *MockRepository) RestoreCmsRevision(ctx context.Context, accountID string, revisionNumber int, actorDeviceID string) (*domain.AppConfiguration, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ensureCmsSeed(accountID)
+	revs := m.cmsRevisions[accountID]
+	var targetRev *domain.CmsRevision
+	for _, r := range revs {
+		if r.RevisionNumber == revisionNumber {
+			targetRev = r
+			break
+		}
+	}
+	if targetRev == nil || targetRev.Snapshot == nil {
+		return nil, ErrNotFound
+	}
+
+	// Restore from snapshot
+	if snapTheme, ok := targetRev.Snapshot["theme"].(*domain.CmsThemeSettings); ok && snapTheme != nil {
+		m.cmsThemes[accountID] = snapTheme
+	}
+
+	// Record new restore revision
+	var devID *string
+	if actorDeviceID != "" {
+		devID = &actorDeviceID
+	}
+	m.recordCmsRevisionLocked(accountID, devID, fmt.Sprintf("Restored configuration from revision #%d", revisionNumber))
+
+	// Return updated app configuration
+	mods := m.listModulesLocked(accountID)
+	var enabledMods []domain.CmsModule
+	for _, mod := range mods {
+		if mod.IsEnabled {
+			enabledMods = append(enabledMods, mod)
+		}
+	}
+
+	nav := m.listNavLocked(accountID)
+	var enabledNav []domain.CmsNavigationItem
+	for _, n := range nav {
+		if n.IsEnabled {
+			enabledNav = append(enabledNav, n)
+		}
+	}
+
+	sections := m.listSectionsLocked(accountID, nil)
+	var enabledSections []domain.CmsSection
+	for _, s := range sections {
+		if s.IsEnabled {
+			enabledSections = append(enabledSections, s)
+		}
+	}
+
+	theme := *m.cmsThemes[accountID]
+	newRevNum := len(m.cmsRevisions[accountID])
+
+	return &domain.AppConfiguration{
+		Modules:        enabledMods,
+		Navigation:     enabledNav,
+		Sections:       enabledSections,
+		Theme:          theme,
+		RevisionNumber: newRevNum,
+	}, nil
+}
+

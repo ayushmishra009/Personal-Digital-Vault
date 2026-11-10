@@ -28,9 +28,9 @@ Reference: [RustFS 1.0.4 release](https://github.com/rustfs/rustfs/releases) and
 
 ## ADR-0005: CMS configuration and sensitive custom schemas
 
-**Status:** Open; resolve before Phase 6<br>
-**Decision:** Keep ordinary presentation configuration server-managed and versioned. Treat private custom-field labels or schemas as sensitive if their meaning reveals private information; those must not be sent in plaintext to the backend. Define client-encrypted schema behavior before CMS implementation.<br>
-**Reason:** The specification both requires backend-managed CMS field definitions and forbids backend receipt of sensitive custom-field labels. The security boundary needs a specific schema classification and API model.
+**Status:** Accepted for Phase 6<br>
+**Decision:** Keep ordinary presentation configuration (screen sections, module toggles, navigation items, theme tokens) server-managed and versioned. All private custom-field labels or sensitive schemas must remain client-side only and never sent to the backend. All CMS rendering must execute strictly through a finite trusted client-side component registry, rejecting arbitrary HTML, scripts, CSS injection, or eval.<br>
+**Reason:** Fulfills Section 7 and Section 14 zero-knowledge requirements of the Master Build Spec. Preserves zero-knowledge privacy while enabling tenant-scoped declarative UI composition.
 
 ## ADR-0006: Phase boundaries
 
@@ -72,3 +72,15 @@ Reference: [RustFS 1.0.4 release](https://github.com/rustfs/rustfs/releases) and
 **Status:** Accepted for Phase 5<br>
 **Decision:** Local client records are persisted exclusively as ciphertext in IndexedDB (`encrypted_records` and `pending_operations` stores) using `@pdv/crypto-core` object envelopes (AES-256-GCM authenticated encryption with AAD derived from the canonical PDV context, DEK wrapped via AES-256-KW using an HKDF key derived from the VEK). Plaintext record fields (passwords, notes, payment info, identity numbers) never exist in IndexedDB or on disk. Decrypted records are held strictly in transient React state and cleared on lock or logout. Local CRUD operations work offline and enqueue revision-tracked sync operations into `pending_operations`. Deletions queue tombstones. Search is performed entirely in client volatile memory over decrypted records. A CSPRNG password generator with uniform rejection sampling and a clipboard manager with 30-second auto-clearing are provided. An inactivity monitor automatically locks all vaults after 15 minutes of inactivity.<br>
 **Reason:** Fulfills Section 5, Section 8, and Section 14 requirements of the Master Build Spec. Enforces privacy-by-architecture, zero-knowledge at rest, offline-first data access, and secure key hygiene in client storage.
+
+## ADR-0013: Phase 6 CMS & Admin Foundation with Declarative Component Registry
+
+**Status:** Accepted for Phase 6<br>
+**Decision:** Implement a tenant-isolated CMS and administrative foundation:
+1. **Database Schema:** Tables `cms_modules`, `cms_sections`, `cms_navigation_items`, `cms_theme_settings`, and `cms_revisions` in migration `00003_cms_foundation.sql`, scoped strictly by `account_id` foreign keys with cascade deletion.
+2. **Backend API:** Standardized endpoints under `/api/v1/app/configuration` (public to authenticated tenant) and `/api/v1/admin/cms/...` (administrative mutations). Every mutation automatically records a snapshot in `cms_revisions` with a sequential `revision_number` and change summary. An idempotent restore endpoint (`POST /api/v1/admin/cms/revisions/{revisionNumber}/restore`) restores any prior configuration snapshot.
+3. **Tenant Isolation:** Enforced strictly across all CMS queries and mutations. Cross-account access attempts return 404 Not Found without leaking configuration existence or data.
+4. **Declarative Component Whitelist:** CMS rendering in client applications (`apps/vault-web`) is mediated exclusively through a finite trusted component registry (`CmsSectionRenderer`). Allowed section types are restricted to `welcome`, `summary`, `quick_actions`, `recent_items`, `vault_cards`, `custom_info`, and `help_panel`. Arbitrary HTML, dynamic `<script>` tags, eval, and CSS execution are strictly prohibited. Text content is rendered as sanitized React text nodes.
+5. **Zero-Knowledge Isolation:** The CMS manages presentation, navigation, and theme tokens only. Plaintext vault records, encryption keys (VEKs/DEKs), passwords, and attachments are strictly isolated from the CMS and backend.<br>
+**Reason:** Fulfills Section 7, Section 13, and Section 14 requirements of the Master Build Spec. Delivers dynamic application configuration, administrative control, and audit trail versioning while rigorously enforcing zero-knowledge boundaries and XSS immunity.
+

@@ -1,7 +1,7 @@
 # Implementation status
 
-**Current phase:** Phase 6 — CMS/Admin foundation<br>
-**Status:** Phases 0, 1, 2, 3, 4, and 5 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 5 delivers a complete client-side encrypted record engine: IndexedDB schema with versioning and fallback, encrypted object repository wrapping DEKs with VEKs and sealing payloads with AES-256-GCM, full CRUD operations for passwords, secure notes, identities, and payments, local in-memory search, cryptographically secure password generator, clipboard auto-clearing, and 15-minute inactivity auto-lock. All backend and frontend unit tests pass.
+**Current phase:** Phase 6 complete; ready for Phase 7 (Security Hardening / Pre-Sync Architecture)<br>
+**Status:** Phases 0, 1, 2, 3, 4, 5, and 6 delivered. Phase 2 protocol and crypto-core remain a prototype, **PENDING SECURITY REVIEW**. Phase 6 delivers a complete tenant-isolated CMS and administrative foundation: schema migration, Go backend endpoints with automatic seed generation and audit trail versioning, a full protected Admin web application (`apps/admin-web`), and a declarative trusted component registry in `apps/vault-web`. All backend and frontend unit tests pass.
 
 ## Repository state at start
 
@@ -95,9 +95,39 @@ The repository contained only the master build specification and Git metadata. N
   - Single-click clipboard copy with auto-clear notice.
 - Comprehensive automated test suite in `apps/vault-web/src/storage/storage.test.ts`.
 
+## Phase 6 scope delivered
+
+- Database migration `00003_cms_foundation.sql`:
+  - `cms_modules`, `cms_sections`, `cms_navigation_items`, `cms_theme_settings`, and `cms_revisions` tables with `UUID DEFAULT gen_random_uuid()` primary keys and `account_id` foreign keys with cascade deletion.
+- OpenAPI 3.1 contract extended with `/api/v1/app/configuration` and `/api/v1/admin/cms/...` endpoints, linted cleanly with Redocly (0 errors).
+- Client API types and Zod validation schemas updated across `@pdv/api-client`, `@pdv/data-models`, and `@pdv/validation`.
+- Go backend architecture:
+  - Domain models in `apps/api/internal/domain/cms.go`.
+  - Repository interfaces in `repository.go` with complete in-memory `MockRepository` and PostgreSQL `PostgresRepository`.
+  - Automatic configuration seeding on first account access (pre-populating standard vault modules, navigation items, dashboard overview sections, and default theme).
+  - Revision history tracking: every CMS mutation creates a snapshot with incremental revision numbers and change summaries.
+  - Snapshot rollback: `POST /api/v1/admin/cms/revisions/{revisionNumber}/restore` cleanly restores earlier configuration states.
+  - Strict tenant boundary enforcement: cross-account access attempts return 404 Not Found without leaking configuration data.
+  - HTTP handlers in `apps/api/internal/handlers/cms.go` and router endpoints in `apps/api/internal/router/router.go`.
+- Protected Admin web application (`apps/admin-web`):
+  - Session authentication gate with sign-in and registration fallback.
+  - Sections management tab: screen filter, order controls, visibility toggle, create/edit modal with JSON content payload editor, and deletion.
+  - Modules management tab: enable/disable optional modules, edit display names and descriptions, adjust display orders.
+  - Navigation management tab: order, toggle visibility, and update labels.
+  - Theme settings tab: preset styles (Default, Emerald, Midnight, Nordic, Slate), custom primary color picker, border radius, layout density, and live preview card.
+  - Revisions audit trail tab: timestamped log with actor device ID, change summary, and one-click restore.
+  - Zero-knowledge notice banner emphasizing client-side encryption isolation.
+- Declarative Trusted Component Registry (`apps/vault-web`):
+  - `CmsSectionRenderer` component supporting only safe whitelisted section types: `welcome`, `summary`, `quick_actions`, `recent_items`, `vault_cards`, `custom_info`, and `help_panel`.
+  - Immune to XSS and remote code execution: strict React text node rendering, no `dangerouslySetInnerHTML`, no arbitrary HTML or script evaluation.
+  - Dynamic theme styling: CSS variables `--primary-color` and `--border-radius` applied dynamically from active configuration.
+- Comprehensive automated test suite:
+  - Go API tests in `internal/router/router_test.go` (`TestCmsEndpointsAndSeeding`, `TestCmsTenantIsolation`).
+  - Vitest tests in `apps/vault-web/src/components/CmsSectionRenderer.test.tsx` (5/5 tests passing).
+
 ## Not implemented
 
-CMS/Admin foundation (Phase 6), backend sync engine and conflict resolution (Phase 8), streaming attachments (Phase 9), backup/restore archives (Phase 10), and Chrome extension (Phase 11) are not implemented.
+Backend sync engine and conflict resolution (Phase 8), streaming attachments (Phase 9), backup/restore archives (Phase 10), and Chrome extension (Phase 11) are not implemented.
 
 ## Verification
 
@@ -105,9 +135,9 @@ CMS/Admin foundation (Phase 6), backend sync engine and conflict resolution (Pha
 - `npx prettier --write .` and `npx eslint .` passed with 0 errors.
 - Redocly lint passed with 0 errors.
 - Go backend unit tests (`internal/auth` and `internal/router`) passed 100%.
-- Client vault and storage vitest tests passed 100% (5/5 tests passing).
+- Client vault and storage vitest tests passed 100% (10/10 tests passing in `vault-web`).
 - TypeScript packages and apps typecheck cleanly with 0 errors.
 
 ## Next phase
 
-Phase 6 — CMS/Admin foundation: Protected Admin/CMS workspace and authorization, account/tenant-scoped CRUD for modules, navigation, screens, sections, record types, custom fields and themes, versioned configuration schemas and validation, dynamic configuration API, and trusted frontend section renderer.
+Phase 7 / Phase 8 — Backend Sync Engine & Conflict Resolution: Delta sync endpoints, client sync queue processing, tombstone handling, and conflict resolution rules.

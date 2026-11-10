@@ -207,3 +207,57 @@ export interface PaymentRecord extends RecordBase {
   type: "payment";
   fields: Record<string, string | number | boolean | null>;
 }
+
+export interface CmsModule {
+  id: OpaqueId;
+  moduleKey: string;
+  displayName: string;
+  description: string | null;
+  iconKey: string;
+  isEnabled: boolean;
+  displayOrder: number;
+  routeKey: string;
+}
+
+export interface CmsSection {
+  id: OpaqueId;
+  screenKey: string;
+  sectionType: string;
+  title: string;
+  contentPayload: Record<string, unknown>;
+  styleConfig: Record<string, unknown>;
+  displayOrder: number;
+  isEnabled: boolean;
+}
+
+export interface CmsNavigationItem {
+  id: OpaqueId;
+  label: string;
+  routeKey: string;
+  iconKey: string;
+  displayOrder: number;
+  isEnabled: boolean;
+}
+
+export interface CmsThemeSettings {
+  themePreset: string;
+  primaryColor: string;
+  borderRadius: string;
+  density: string;
+}
+
+export interface CmsRevision {
+  id: OpaqueId;
+  revisionNumber: number;
+  actorDeviceId: string | null;
+  changeSummary: string;
+  createdAt: ISODateTime;
+}
+
+export interface AppConfiguration {
+  modules: CmsModule[];
+  navigation: CmsNavigationItem[];
+  sections: CmsSection[];
+  theme: CmsThemeSettings;
+  revisionNumber: number;
+}
