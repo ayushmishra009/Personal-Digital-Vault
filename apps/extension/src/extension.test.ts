@@ -5,7 +5,15 @@ import {
   normalizeOrigin,
   isAllowedOrigin,
 } from "./utils/origin";
-import { fillCredentialsInDocument } from "./utils/dom-fill";
+import {
+  fillCredentialsInDocument,
+  fillGeneratedPasswordInDocument,
+  captureCredentialsFromDocument,
+} from "./utils/dom-fill";
+import {
+  generatePassword,
+  estimatePasswordStrength,
+} from "./utils/password-generator";
 import { SessionManager } from "./session";
 import type { Argon2idProvider } from "./crypto";
 import contentScriptDef from "../entrypoints/content";
@@ -425,6 +433,127 @@ describe("Phase 11: Chrome Extension Security & Functionality", () => {
       expect(contentScriptDef.allFrames).toBe(false);
       expect(contentScriptDef.matches).toContain("https://*/*");
       expect(contentScriptDef.matches).toContain("http://*/*");
+    });
+  });
+
+  describe("6. Seamless Password Generation, Form Detection & Auto-Capture", () => {
+    it("generates cryptographically secure passwords and evaluates strength", () => {
+      const pwd = generatePassword({ length: 24 });
+      expect(pwd.length).toBe(24);
+      expect(/[A-Z]/.test(pwd)).toBe(true);
+      expect(/[a-z]/.test(pwd)).toBe(true);
+      expect(/[0-9]/.test(pwd)).toBe(true);
+
+      const strength = estimatePasswordStrength(pwd);
+      expect(strength.entropyBits).toBeGreaterThan(80);
+      expect(["Strong", "Very Strong"]).toContain(strength.label);
+    });
+
+    it("fills generated passwords across password and confirmation fields", () => {
+      const mockP1 = { value: "", dispatchEvent: () => {} };
+      const mockP2 = { value: "", dispatchEvent: () => {} };
+      const mockDoc = {
+        querySelectorAll: (sel: string) => {
+          if (sel.includes("password")) return [mockP1, mockP2];
+          return [];
+        },
+      } as unknown as Document;
+
+      const result = fillGeneratedPasswordInDocument(
+        mockDoc,
+        "SuperSecureGeneratedPassword99!",
+      );
+      expect(result.success).toBe(true);
+      expect(result.filledCount).toBe(2);
+      expect(mockP1.value).toBe("SuperSecureGeneratedPassword99!");
+      expect(mockP2.value).toBe("SuperSecureGeneratedPassword99!");
+    });
+
+    it("captures filled credentials from a submitted document/form", () => {
+      const mockUser = { value: "captured_user", form: null as unknown };
+      const mockPass = { value: "captured_pass_12345", form: null as unknown };
+      const mockForm = {
+        querySelectorAll: (sel: string) => {
+          if (sel.includes("password")) return [mockPass];
+          if (
+            sel.includes("user") ||
+            sel.includes("email") ||
+            sel.includes("text")
+          ) {
+            return [mockUser];
+          }
+          return [];
+        },
+      };
+      mockUser.form = mockForm;
+      mockPass.form = mockForm;
+      const mockDoc = {
+        querySelectorAll: (sel: string) => mockForm.querySelectorAll(sel),
+      } as unknown as Document;
+
+      const captured = captureCredentialsFromDocument(mockDoc);
+      expect(captured).not.toBeNull();
+      expect(captured?.username).toBe("captured_user");
+      expect(captured?.password).toBe("captured_pass_12345");
+    });
+
+    it("encrypts and saves captured credentials in the unlocked vault", async () => {
+      const mockArgon2: Argon2idProvider = {
+        async deriveKey(pw: Uint8Array, salt: Uint8Array): Promise<Uint8Array> {
+          const out = new Uint8Array(32);
+          for (let i = 0; i < 32; i++) {
+            out[i] = (pw[i % pw.length] ^ salt[i % salt.length] ^ i) & 0xff;
+          }
+          return out;
+        },
+      };
+
+      const session = new SessionManager();
+      await session.seedDefaultVault("TestMasterPassword1!", mockArgon2);
+      await session.unlock({
+        password: "TestMasterPassword1!",
+        argon2Provider: mockArgon2,
+      });
+
+      // Set pending capture
+      session.setPendingCapture({
+        username: "test_dev",
+        password: "GeneratedDevSecret123!",
+        url: "https://newapp.example.com/signup",
+        title: "New App",
+        timestamp: Date.now(),
+      });
+      expect(session.getPendingCapture()).not.toBeNull();
+
+      // Save credential
+      const saveRes = await session.saveCredential({
+        title: "New App",
+        url: "https://newapp.example.com",
+        username: "test_dev",
+        password: "GeneratedDevSecret123!",
+      });
+
+      expect(saveRes.success).toBe(true);
+      expect(saveRes.record?.title).toBe("New App");
+
+      // Verify pending capture was cleared automatically on save
+      expect(session.getPendingCapture()).toBeNull();
+
+      // Verify credential appears in list
+      const list = session.listCredentials("https://newapp.example.com");
+      expect(list.some((c) => c.title === "New App")).toBe(true);
+    });
+
+    it("rejects saving credentials when vault is locked", async () => {
+      const session = new SessionManager();
+      const res = await session.saveCredential({
+        title: "Locked Save",
+        url: "https://example.com",
+        username: "user",
+        password: "pwd",
+      });
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("Vault must be unlocked");
     });
   });
 });

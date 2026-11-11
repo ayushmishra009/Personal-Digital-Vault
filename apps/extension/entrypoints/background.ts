@@ -2,6 +2,7 @@ import { defineBackground } from "wxt/utils/define-background";
 import { browser } from "wxt/browser";
 import { SessionManager, type StoredVaultData } from "../src/session";
 import type { ExtensionMessage } from "../src/types";
+import { generatePassword } from "../src/utils/password-generator";
 
 export default defineBackground(() => {
   const session = new SessionManager();
@@ -183,6 +184,115 @@ export default defineBackground(() => {
                 // Ignore
               }
               sendResponse({ success: true, data: vaultData.vaultId });
+              break;
+            }
+
+            case "GENERATE_PASSWORD": {
+              const generated = generatePassword({
+                length: message.length,
+                uppercase: message.uppercase,
+                lowercase: message.lowercase,
+                numbers: message.numbers,
+                symbols: message.symbols,
+              });
+              sendResponse({ success: true, data: generated });
+              break;
+            }
+
+            case "GENERATE_AND_FILL": {
+              const generated = generatePassword(message.options || {});
+              const tabs = await browser.tabs.query({
+                active: true,
+                currentWindow: true,
+              });
+              const currentTab = tabs[0];
+              if (!currentTab || !currentTab.id) {
+                sendResponse({
+                  success: false,
+                  error: "No active browser tab found",
+                });
+                break;
+              }
+
+              const fillResult = await browser.tabs.sendMessage(
+                currentTab.id,
+                {
+                  type: "PDV_FILL_GENERATED_PASSWORD",
+                  payload: { password: generated },
+                },
+                { frameId: 0 },
+              );
+
+              sendResponse({
+                success: true,
+                data: { password: generated, fillResult },
+              });
+              break;
+            }
+
+            case "SAVE_CREDENTIAL": {
+              const result = await session.saveCredential({
+                title: message.title,
+                url: message.url,
+                username: message.username,
+                password: message.password,
+                notes: message.notes,
+                tags: message.tags,
+              });
+
+              if (result.success && session.getStoredVault()) {
+                try {
+                  await browser.storage?.local?.set({
+                    pdv_vault_data: session.getStoredVault(),
+                  });
+                } catch {
+                  // Ignore storage error
+                }
+              }
+
+              sendResponse(result);
+              break;
+            }
+
+            case "CAPTURE_CREDENTIALS": {
+              session.setPendingCapture(message.data);
+
+              // Optionally notify top-level tab to show in-page confirmation banner
+              try {
+                const tabs = await browser.tabs.query({
+                  active: true,
+                  currentWindow: true,
+                });
+                const currentTab = tabs[0];
+                if (currentTab?.id) {
+                  await browser.tabs.sendMessage(
+                    currentTab.id,
+                    {
+                      type: "PDV_SHOW_SAVE_PROMPT",
+                      payload: message.data,
+                    },
+                    { frameId: 0 },
+                  );
+                }
+              } catch {
+                // Tab may have navigated or reloaded
+              }
+
+              sendResponse({ success: true });
+              break;
+            }
+
+            case "GET_PENDING_CAPTURE": {
+              sendResponse({
+                success: true,
+                data: session.getPendingCapture(),
+              });
+              break;
+            }
+
+            case "CLEAR_PENDING_CAPTURE": {
+              session.clearPendingCapture();
+              sendResponse({ success: true });
               break;
             }
 

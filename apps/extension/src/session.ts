@@ -16,7 +16,7 @@ import {
   extractHostname,
   isAllowedOrigin,
 } from "./utils/origin";
-import type { ExtensionStatus, CredentialSummary } from "./types";
+import type { ExtensionStatus, CredentialSummary, CapturedCredential } from "./types";
 import type { PasswordRecord } from "@pdv/data-models";
 
 export interface StoredVaultData {
@@ -33,6 +33,7 @@ export class SessionManager {
   private decryptedRecords: PasswordRecord[] = [];
   private allowlist: string[] = [];
   private storedVault: StoredVaultData | null = null;
+  private pendingCapture: CapturedCredential | null = null;
 
   constructor() {
     this.reset();
@@ -43,6 +44,7 @@ export class SessionManager {
     this.unlockedVek = null;
     this.activeVaultId = null;
     this.decryptedRecords = [];
+    this.pendingCapture = null;
   }
 
   public setStoredVault(vault: StoredVaultData | null): void {
@@ -78,6 +80,81 @@ export class SessionManager {
       return true;
     }
     return false;
+  }
+
+  public setPendingCapture(capture: CapturedCredential | null): void {
+    this.pendingCapture = capture;
+  }
+
+  public getPendingCapture(): CapturedCredential | null {
+    return this.pendingCapture;
+  }
+
+  public clearPendingCapture(): void {
+    this.pendingCapture = null;
+  }
+
+  public async saveCredential(params: {
+    title: string;
+    url?: string;
+    username?: string;
+    password?: string;
+    notes?: string;
+    tags?: string[];
+  }): Promise<{ success: boolean; record?: PasswordRecord; error?: string }> {
+    if (
+      !this.isUnlocked ||
+      !this.unlockedVek ||
+      !this.activeVaultId ||
+      !this.storedVault
+    ) {
+      return {
+        success: false,
+        error: "Vault must be unlocked to save credentials",
+      };
+    }
+
+    if (!params.title.trim()) {
+      return { success: false, error: "Title is required" };
+    }
+
+    const recordId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const newRecord: PasswordRecord = {
+      id: recordId,
+      type: "password",
+      title: params.title.trim(),
+      password: params.password || "",
+      tags: params.tags || [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (params.url?.trim()) newRecord.url = params.url.trim();
+    if (params.username?.trim()) newRecord.username = params.username.trim();
+    if (params.notes?.trim()) newRecord.notes = params.notes.trim();
+
+    const context: ObjectContext = {
+      protocolVersion: 1,
+      purpose: "record",
+      vaultId: this.activeVaultId,
+      objectId: recordId,
+      revision: 1,
+      payloadVersion: 1,
+    };
+
+    const envelope = await sealObject(this.unlockedVek, context, newRecord);
+
+    this.storedVault.encryptedRecords.push(envelope);
+    this.decryptedRecords.push(newRecord);
+
+    if (
+      this.pendingCapture &&
+      (!params.url || matchesDomain(params.url, this.pendingCapture.url))
+    ) {
+      this.pendingCapture = null;
+    }
+
+    return { success: true, record: newRecord };
   }
 
   public getStatus(currentTabUrl?: string | null): ExtensionStatus {

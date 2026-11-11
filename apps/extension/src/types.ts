@@ -27,6 +27,14 @@ export interface FillResult {
   error?: string;
 }
 
+export interface CapturedCredential {
+  username?: string;
+  password?: string;
+  url: string;
+  title: string;
+  timestamp: number;
+}
+
 export type ExtensionMessage =
   | { type: "GET_STATUS" }
   | {
@@ -42,8 +50,40 @@ export type ExtensionMessage =
   | { type: "GET_ALLOWLIST" }
   | { type: "ADD_ALLOWLIST"; domain: string }
   | { type: "REMOVE_ALLOWLIST"; domain: string }
-  | { type: "SEED_VAULT"; password?: string };
+  | { type: "SEED_VAULT"; password?: string }
+  | {
+      type: "GENERATE_PASSWORD";
+      length?: number;
+      uppercase?: boolean;
+      lowercase?: boolean;
+      numbers?: boolean;
+      symbols?: boolean;
+    }
+  | {
+      type: "GENERATE_AND_FILL";
+      options?: {
+        length?: number;
+        uppercase?: boolean;
+        lowercase?: boolean;
+        numbers?: boolean;
+        symbols?: boolean;
+      };
+    }
+  | {
+      type: "SAVE_CREDENTIAL";
+      title: string;
+      url: string;
+      username?: string;
+      password?: string;
+      notes?: string;
+      tags?: string[];
+    }
+  | { type: "CAPTURE_CREDENTIALS"; data: CapturedCredential }
+  | { type: "GET_PENDING_CAPTURE" }
+  | { type: "CLEAR_PENDING_CAPTURE" };
 
 export type ContentScriptMessage =
   | { type: "PDV_DETECT_FORM" }
-  | { type: "PDV_FILL_CREDENTIALS"; payload: CredentialFillPayload };
+  | { type: "PDV_FILL_CREDENTIALS"; payload: CredentialFillPayload }
+  | { type: "PDV_FILL_GENERATED_PASSWORD"; payload: { password: string } }
+  | { type: "PDV_SHOW_SAVE_PROMPT"; payload: CapturedCredential };

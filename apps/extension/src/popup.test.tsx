@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import React from "react";
 import { renderToString } from "react-dom/server";
+import { browser } from "wxt/browser";
 import { Popup } from "../entrypoints/popup/Popup";
 
 // Mock wxt/browser runtime messaging
@@ -34,5 +35,55 @@ describe("Popup UI Component", () => {
     expect(html).toContain("Master Password");
     expect(html).toContain("Unlock Vault");
     expect(html).toContain("Seed Demo Vault");
+  });
+
+  it("renders unlocked tabs with Credentials, Generator, and Allowed Origins", () => {
+    const originalMock = vi.mocked(browser.runtime.sendMessage);
+    originalMock.mockImplementation(async (msg: unknown) => {
+      const message = msg as { type: string };
+      if (message.type === "GET_STATUS") {
+        return {
+          success: true,
+          data: {
+            isAuthenticated: true,
+            isUnlocked: true,
+            activeVaultId: "v-1",
+            currentTabUrl: "https://example.com/login",
+            currentDomain: "example.com",
+          },
+        };
+      }
+      if (msg.type === "LIST_CREDENTIALS") {
+        return { success: true, data: [] };
+      }
+      if (msg.type === "GET_PENDING_CAPTURE") {
+        return {
+          success: true,
+          data: {
+            username: "detected_user",
+            password: "secret_password",
+            url: "https://example.com/signup",
+            title: "Example Signup",
+            timestamp: Date.now(),
+          },
+        };
+      }
+      return { success: true, data: [] };
+    });
+
+    const html = renderToString(
+      <Popup
+        initialStatus={{
+          isAuthenticated: true,
+          isUnlocked: true,
+          activeVaultId: "v-1",
+          currentTabUrl: "https://example.com/login",
+          currentDomain: "example.com",
+        }}
+      />,
+    );
+    expect(html).toContain("Credentials");
+    expect(html).toContain("Generator");
+    expect(html).toContain("Allowed Origins");
   });
 });
