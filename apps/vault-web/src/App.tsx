@@ -27,6 +27,7 @@ import {
 } from "./storage/record-repository";
 import { copyToClipboardWithAutoClear } from "./storage/clipboard";
 import { setupInactivityTracker } from "./storage/inactivity";
+import { estimatePasswordStrength } from "./storage/password-generator";
 import type {
   AppConfiguration,
   DecryptedRecord,
@@ -83,6 +84,53 @@ function randomBase64Url(length = 32): string {
     .replace(/=+$/, "");
 }
 
+function getFriendlyDeviceName(): string {
+  if (typeof navigator === "undefined") return "Personal Computer";
+  const ua = navigator.userAgent;
+  let os = "Computer";
+  if (ua.includes("Win")) os = "Windows PC";
+  else if (ua.includes("Mac")) os = "Mac";
+  else if (ua.includes("Linux")) os = "Linux PC";
+  else if (ua.includes("Android")) os = "Android Device";
+  else if (ua.includes("iPhone") || ua.includes("iPad")) os = "iOS Device";
+
+  let browser = "Browser";
+  if (ua.includes("Edg/")) browser = "Edge";
+  else if (ua.includes("Chrome")) browser = "Chrome";
+  else if (ua.includes("Safari")) browser = "Safari";
+  else if (ua.includes("Firefox")) browser = "Firefox";
+
+  return `${browser} on ${os}`;
+}
+
+function downloadRecoverySheet(email: string, recoverySecret: string) {
+  const content = `=======================================================
+PERSONAL DIGITAL VAULT - EMERGENCY RECOVERY SHEET
+=======================================================
+Account Email: ${email}
+Created At:    ${new Date().toISOString()}
+
+YOUR 256-BIT RECOVERY KEY:
+${recoverySecret}
+
+CRITICAL SECURITY INFORMATION:
+- Your recovery key can unlock and recover your vault if you
+  ever forget your Master Password.
+- The server NEVER has access to your Master Password or VEK.
+- Store this sheet offline in a safe physical location.
+=======================================================`;
+
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `pdv-recovery-key-${email.replace(/[^a-zA-Z0-9]/g, "_")}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function App() {
   const [session, setSession] = useState<AccountSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,17 +176,55 @@ export function App() {
   const [appConfig, setAppConfig] = useState<AppConfiguration | null>(null);
   const [inactivityMinutes, setInactivityMinutes] = useState(15);
 
-  // Auth form state
-  const [authTab, setAuthTab] = useState<"login" | "register">("register");
-  const [authEmail, setAuthEmail] = useState(
-    () => localStorage.getItem("pdv_last_email") || "",
+  // Auth form state & detection
+  const hasStoredDevice = Boolean(
+    typeof window !== "undefined" &&
+      localStorage.getItem("pdv_last_device_id") &&
+      localStorage.getItem("pdv_last_email"),
   );
-  const [authDeviceLabel, setAuthDeviceLabel] = useState("My Browser");
+  const storedDeviceLabel =
+    (typeof window !== "undefined" &&
+      localStorage.getItem("pdv_last_device_label")) ||
+    getFriendlyDeviceName();
+
+  const [authTab, setAuthTab] = useState<"login" | "register">(() =>
+    hasStoredDevice ? "login" : "register",
+  );
+  const [authEmail, setAuthEmail] = useState(
+    () =>
+      (typeof window !== "undefined" &&
+        localStorage.getItem("pdv_last_email")) ||
+      "",
+  );
+  const [authDeviceLabel] = useState(getFriendlyDeviceName);
   const [authDeviceId, setAuthDeviceId] = useState(
-    () => localStorage.getItem("pdv_last_device_id") || "",
+    () =>
+      (typeof window !== "undefined" &&
+        localStorage.getItem("pdv_last_device_id")) ||
+      "",
   );
   const [authCredentialId, setAuthCredentialId] = useState(
-    () => localStorage.getItem("pdv_last_credential_id") || "",
+    () =>
+      (typeof window !== "undefined" &&
+        localStorage.getItem("pdv_last_credential_id")) ||
+      "",
+  );
+
+  // Registration & Onboarding states
+  const [registerPassword, setRegisterPassword] = useState("");
+  const [registerConfirmPassword, setRegisterConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [onboardingSecret, setOnboardingSecret] = useState<string | null>(null);
+  const [copiedRecovery, setCopiedRecovery] = useState(false);
+  const [savedRecoveryAcknowledged, setSavedRecoveryAcknowledged] =
+    useState(false);
+
+  // Sign In states
+  const [useManualCredentials, setUseManualCredentials] = useState(false);
+  const [pairingChallenge, setPairingChallenge] = useState<string | null>(null);
+  const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
+  const [authStatusMessage, setAuthStatusMessage] = useState<string | null>(
+    null,
   );
 
   const [, startTransition] = useTransition();
@@ -230,52 +316,96 @@ export function App() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    const email = authEmail.trim();
+    if (!email || !email.includes("@")) {
+      setError("Please enter a valid email address");
+      return;
+    }
+
+    if (registerPassword.length < 8) {
+      setError("Master password must be at least 8 characters long");
+      return;
+    }
+
+    if (registerPassword !== registerConfirmPassword) {
+      setError("Master passwords do not match");
+      return;
+    }
+
+    setIsSubmittingAuth(true);
     try {
+      setAuthStatusMessage("Registering account & enrolling secure device...");
+      const devLabel = authDeviceLabel.trim() || getFriendlyDeviceName();
       const generatedPubKey = randomBase64Url(32);
       const generatedCredId = authCredentialId.trim() || `cred-${Date.now()}`;
-      const email = authEmail.trim();
+
+      // 1. Register account & initial trusted device
       const s = await registerAccount({
         email,
-        deviceLabel: authDeviceLabel.trim() || "Web Browser",
+        deviceLabel: devLabel,
         platform: navigator.platform || "Web",
-        browser: "Chrome / Modern Browser",
+        browser: getFriendlyDeviceName(),
         publicKeyAlgorithm: "Ed25519",
         publicKey: generatedPubKey,
         credentialType: "external",
         credentialId: generatedCredId,
         externalSubject: email,
       });
+
       localStorage.setItem("pdv_last_email", email);
       localStorage.setItem("pdv_last_credential_id", generatedCredId);
       if (s.device?.id) {
         localStorage.setItem("pdv_last_device_id", s.device.id);
+        localStorage.setItem("pdv_last_device_label", devLabel);
+        setAuthDeviceId(s.device.id);
       }
-      startTransition(() => {
-        setSession(s);
-        if (s.device?.id) setAuthDeviceId(s.device.id);
-      });
-      const [devList, vaultList, cfg] = await Promise.all([
+
+      setSession(s);
+
+      // 2. Automatically create & unlock initial primary vault with master password
+      setAuthStatusMessage("Deriving Argon2id keys & securing your primary vault...");
+      const recoverySecret = await handleCreateVault(registerPassword);
+
+      // 3. Load configuration and devices
+      const [devList, cfg] = await Promise.all([
         listDevices(),
-        listVaults(),
         getAppConfiguration().catch(() => null),
       ]);
       setDevices(devList.items);
-      setVaults(vaultList.items);
       if (cfg) setAppConfig(cfg);
-      if (vaultList.items.length > 0) setActiveVaultId(vaultList.items[0].id);
-      showToast("Registered and enrolled initial device!");
+
+      // 4. Present recovery key onboarding card
+      setOnboardingSecret(recoverySecret);
+      showToast("Account & Vault created successfully!");
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
+    } finally {
+      setIsSubmittingAuth(false);
+      setAuthStatusMessage(null);
     }
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setError(null);
+    const email = authEmail.trim();
+    const devId = authDeviceId.trim();
+    const credId = authCredentialId.trim();
+
+    if (!email) {
+      setError("Please enter your email address");
+      return;
+    }
+    if (!devId || !credId) {
+      setError(
+        "Device credentials missing. Please pair this device or enter manual credentials.",
+      );
+      return;
+    }
+
+    setIsSubmittingAuth(true);
     try {
-      const email = authEmail.trim();
-      const devId = authDeviceId.trim();
-      const credId = authCredentialId.trim();
       const s = await loginAccount({
         email,
         deviceId: devId,
@@ -298,11 +428,53 @@ export function App() {
         setVaults(vaultList.items);
         if (cfg) setAppConfig(cfg);
         if (vaultList.items.length > 0) setActiveVaultId(vaultList.items[0].id);
-        showToast("Signed in successfully!");
+        showToast("Signed in successfully! Please unlock your vault.");
       }
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
+    } finally {
+      setIsSubmittingAuth(false);
     }
+  };
+
+  const handlePairNewDevice = async () => {
+    setError(null);
+    const email = authEmail.trim();
+    if (!email || !email.includes("@")) {
+      setError("Enter your registered email address first");
+      return;
+    }
+
+    setIsSubmittingAuth(true);
+    try {
+      const fakePubKey = randomBase64Url(32);
+      const devLabel = `${getFriendlyDeviceName()} (New)`;
+      const enr = await createDeviceEnrollment({
+        deviceLabel: devLabel,
+        platform: navigator.platform || "Web",
+        browser: getFriendlyDeviceName(),
+        publicKeyAlgorithm: "Ed25519",
+        publicKey: fakePubKey,
+      });
+      setPairingChallenge(enr.challenge);
+      showToast(
+        "Pairing request created! Approve it from your registered device.",
+      );
+    } catch (err: unknown) {
+      if (err instanceof Error) setError(err.message);
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
+
+  const handleForgetDevice = () => {
+    localStorage.removeItem("pdv_last_device_id");
+    localStorage.removeItem("pdv_last_credential_id");
+    localStorage.removeItem("pdv_last_device_label");
+    setAuthDeviceId("");
+    setAuthCredentialId("");
+    setUseManualCredentials(true);
+    showToast("Cleared saved device credentials from this browser.");
   };
 
   const handleLogout = async () => {
@@ -643,8 +815,141 @@ export function App() {
     );
   }
 
+  // Render Onboarding Emergency Recovery Key Screen (after initial account & vault creation)
+  if (onboardingSecret) {
+    return (
+      <div style={{ maxWidth: 560, margin: "6vh auto", padding: "1.5rem" }}>
+        <div className="card" style={{ borderTop: "4px solid #1c5230" }}>
+          <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
+            <span style={{ fontSize: "2.5rem" }}>🎉</span>
+            <h1 style={{ fontSize: "1.6rem", margin: "0.5rem 0 0.25rem" }}>
+              Welcome to Your Vault!
+            </h1>
+            <p style={{ color: "#556b5a", fontSize: "0.9rem", margin: 0 }}>
+              Your account, primary vault, and encryption keys are ready.
+            </p>
+          </div>
+
+          <div
+            className="warning-banner"
+            style={{
+              marginBottom: "1.25rem",
+              background: "#fffbeb",
+              border: "1px solid #fef3c7",
+              padding: "1rem",
+              borderRadius: "8px",
+              color: "#92400e",
+            }}
+          >
+            <strong>⚠️ Save Your Emergency Recovery Key</strong>
+            <p style={{ margin: "0.35rem 0 0", lineHeight: 1.4 }}>
+              Because your vault is end-to-end encrypted, the server never knows
+              your master password. If you ever forget it, this recovery key is
+              the <strong>only way</strong> to restore your vault.
+            </p>
+          </div>
+
+          <div style={{ marginBottom: "1rem" }}>
+            <span
+              style={{
+                fontSize: "0.8rem",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                color: "#556b5a",
+                fontWeight: 600,
+              }}
+            >
+              Your 256-Bit Recovery Secret
+            </span>
+            <div
+              className="secret-display font-mono"
+              style={{
+                background: "#f3f4f6",
+                padding: "0.85rem",
+                borderRadius: "6px",
+                border: "1px solid #e5e7eb",
+                fontSize: "1.05rem",
+                wordBreak: "break-all",
+                textAlign: "center",
+                fontWeight: 600,
+                color: "#111827",
+                marginTop: "0.35rem",
+              }}
+            >
+              {onboardingSecret}
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: "0.5rem",
+              marginBottom: "1.25rem",
+            }}
+          >
+            <button
+              type="button"
+              className="secondary-btn"
+              style={{ flex: 1, padding: "0.6rem" }}
+              onClick={async () => {
+                await copyToClipboardWithAutoClear(onboardingSecret, 60_000);
+                setCopiedRecovery(true);
+                setTimeout(() => setCopiedRecovery(false), 3000);
+              }}
+            >
+              {copiedRecovery ? "✓ Copied to Clipboard!" : "📋 Copy Key"}
+            </button>
+            <button
+              type="button"
+              className="secondary-btn"
+              style={{ flex: 1, padding: "0.6rem" }}
+              onClick={() => downloadRecoverySheet(authEmail, onboardingSecret)}
+            >
+              💾 Download Sheet (.txt)
+            </button>
+          </div>
+
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.6rem",
+              fontSize: "0.88rem",
+              cursor: "pointer",
+              marginBottom: "1.25rem",
+              userSelect: "none",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={savedRecoveryAcknowledged}
+              onChange={(e) => setSavedRecoveryAcknowledged(e.target.checked)}
+              style={{ width: "1.1rem", height: "1.1rem", cursor: "pointer" }}
+            />
+            <span>I have safely saved my recovery key offline</span>
+          </label>
+
+          <button
+            type="button"
+            className="primary-btn"
+            style={{ width: "100%", padding: "0.75rem", fontSize: "1rem" }}
+            disabled={!savedRecoveryAcknowledged}
+            onClick={() => {
+              setOnboardingSecret(null);
+              showToast("Vault unlocked and ready!");
+            }}
+          >
+            Open My Vault ➔
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Render Authentication Screen
   if (!session) {
+    const pwStrength = estimatePasswordStrength(registerPassword);
+
     return (
       <div style={{ maxWidth: 440, margin: "8vh auto", padding: "1.5rem" }}>
         <div className="card">
@@ -658,8 +963,16 @@ export function App() {
             </p>
           </div>
 
-          {error && <div className="alert alert-danger">{error}</div>}
-          {success && <div className="alert alert-success">{success}</div>}
+          {error && (
+            <div className="error-banner" style={{ marginBottom: "1rem" }}>
+              {error}
+            </div>
+          )}
+          {success && (
+            <div className="success-banner" style={{ marginBottom: "1rem" }}>
+              {success}
+            </div>
+          )}
 
           <div className="tab-bar">
             <button
@@ -668,9 +981,10 @@ export function App() {
               onClick={() => {
                 setAuthTab("register");
                 setError(null);
+                setPairingChallenge(null);
               }}
             >
-              Register Account
+              Create Vault
             </button>
             <button
               type="button"
@@ -678,6 +992,7 @@ export function App() {
               onClick={() => {
                 setAuthTab("login");
                 setError(null);
+                setPairingChallenge(null);
               }}
             >
               Sign In
@@ -686,94 +1001,375 @@ export function App() {
 
           {authTab === "register" ? (
             <form onSubmit={handleRegister} className="form">
-              <div className="form-group">
-                <label>Email Address</label>
-                <input
-                  type="email"
-                  className="form-control"
-                  placeholder="user@example.com"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  required
-                />
+              <div>
+                <label>
+                  <span>Email Address</span>
+                  <input
+                    type="email"
+                    placeholder="user@example.com"
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    required
+                    disabled={isSubmittingAuth}
+                  />
+                </label>
               </div>
 
-              <div className="form-group">
-                <label>Device Label</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="e.g. Work Laptop"
-                  value={authDeviceLabel}
-                  onChange={(e) => setAuthDeviceLabel(e.target.value)}
-                  required
-                />
+              <div>
+                <label>
+                  <span>Choose Master Password</span>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="At least 8 characters (12+ recommended)"
+                    value={registerPassword}
+                    onChange={(e) => setRegisterPassword(e.target.value)}
+                    required
+                    disabled={isSubmittingAuth}
+                  />
+                </label>
+                {registerPassword && (
+                  <div style={{ marginTop: "0.35rem" }}>
+                    <div
+                      style={{
+                        height: 4,
+                        width: "100%",
+                        background: "#e5e7eb",
+                        borderRadius: 2,
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.min(100, (pwStrength.entropyBits / 90) * 100)}%`,
+                          backgroundColor: pwStrength.color,
+                          borderRadius: 2,
+                          transition: "all 0.2s ease",
+                        }}
+                      />
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "0.75rem",
+                        color: "#556b5a",
+                        marginTop: "0.2rem",
+                      }}
+                    >
+                      Strength:{" "}
+                      <strong style={{ color: pwStrength.color }}>
+                        {pwStrength.label}
+                      </strong>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="form-group">
-                <label>Credential Identifier (Optional)</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="Auto-generated if blank"
-                  value={authCredentialId}
-                  onChange={(e) => setAuthCredentialId(e.target.value)}
-                />
+              <div>
+                <label>
+                  <span>Confirm Master Password</span>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Re-enter your master password"
+                    value={registerConfirmPassword}
+                    onChange={(e) => setRegisterConfirmPassword(e.target.value)}
+                    required
+                    disabled={isSubmittingAuth}
+                  />
+                </label>
               </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontSize: "0.8rem",
+                  color: "#556b5a",
+                }}
+              >
+                <label
+                  style={{
+                    display: "inline-flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: "0.35rem",
+                    cursor: "pointer",
+                    margin: 0,
+                    fontWeight: "normal",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={showPassword}
+                    onChange={(e) => setShowPassword(e.target.checked)}
+                    style={{ width: "auto" }}
+                  />
+                  <span>Show password</span>
+                </label>
+                <span title="Your device is automatically enrolled as trusted">
+                  🛡️ {authDeviceLabel}
+                </span>
+              </div>
+
+              {authStatusMessage && (
+                <div
+                  style={{
+                    background: "#eef5f0",
+                    color: "#1c5230",
+                    padding: "0.6rem 0.8rem",
+                    borderRadius: "6px",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  ⏳ {authStatusMessage}
+                </div>
+              )}
 
               <button
                 type="submit"
-                className="btn-primary"
-                style={{ width: "100%", marginTop: "0.5rem" }}
+                className="primary-btn"
+                style={{ width: "100%", padding: "0.75rem", fontSize: "1rem" }}
+                disabled={isSubmittingAuth}
               >
-                Register & Enroll Device
+                {isSubmittingAuth
+                  ? "Creating Your Vault..."
+                  : "Create Account & Vault 🚀"}
               </button>
             </form>
-          ) : (
-            <form onSubmit={handleLogin} className="form">
-              <div className="form-group">
-                <label>Email Address</label>
-                <input
-                  type="email"
-                  className="form-control"
-                  placeholder="user@example.com"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Registered Device ID (UUID)</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="e.g. dev-0001"
-                  value={authDeviceId}
-                  onChange={(e) => setAuthDeviceId(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Credential Identifier</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="e.g. cred-user-001"
-                  value={authCredentialId}
-                  onChange={(e) => setAuthCredentialId(e.target.value)}
-                  required
-                />
+          ) : hasStoredDevice && !useManualCredentials ? (
+            <div>
+              <div style={{ textAlign: "center", padding: "0.75rem 0 1.25rem" }}>
+                <div style={{ fontSize: "2.2rem", marginBottom: "0.25rem" }}>
+                  👋
+                </div>
+                <h2 style={{ fontSize: "1.25rem", margin: "0.25rem 0" }}>
+                  Welcome Back!
+                </h2>
+                <p
+                  style={{
+                    fontWeight: 600,
+                    color: "#1c5230",
+                    fontSize: "1.05rem",
+                    margin: "0.25rem 0",
+                  }}
+                >
+                  {authEmail}
+                </p>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.35rem",
+                    background: "#eef5f0",
+                    color: "#1c5230",
+                    padding: "0.25rem 0.65rem",
+                    borderRadius: "16px",
+                    fontSize: "0.8rem",
+                    marginTop: "0.35rem",
+                  }}
+                >
+                  <span>🛡️</span> Trusted Device: {storedDeviceLabel}
+                </div>
               </div>
 
               <button
-                type="submit"
-                className="btn-primary"
-                style={{ width: "100%", marginTop: "0.5rem" }}
+                type="button"
+                className="primary-btn"
+                style={{ width: "100%", padding: "0.75rem", fontSize: "1rem" }}
+                onClick={() => handleLogin()}
+                disabled={isSubmittingAuth}
               >
-                Sign In
+                {isSubmittingAuth ? "Signing In..." : "Sign In with This Device"}
               </button>
+
+              <div
+                style={{
+                  marginTop: "1.25rem",
+                  textAlign: "center",
+                  fontSize: "0.82rem",
+                }}
+              >
+                <button
+                  type="button"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#556b5a",
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                  onClick={() => setUseManualCredentials(true)}
+                >
+                  Sign in with another account or pair new device
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleLogin} className="form">
+              <div>
+                <label>
+                  <span>Email Address</span>
+                  <input
+                    type="email"
+                    placeholder="user@example.com"
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    required
+                    disabled={isSubmittingAuth}
+                  />
+                </label>
+              </div>
+
+              {pairingChallenge ? (
+                <div
+                  style={{
+                    background: "#f0f9ff",
+                    border: "1px solid #bae6fd",
+                    borderRadius: "8px",
+                    padding: "1rem",
+                    color: "#0369a1",
+                  }}
+                >
+                  <strong>📱 Device Pairing Code Generated</strong>
+                  <div
+                    style={{
+                      fontSize: "1.05rem",
+                      fontWeight: 700,
+                      margin: "0.5rem 0",
+                      letterSpacing: "0.08em",
+                    }}
+                    className="font-mono"
+                  >
+                    {pairingChallenge.slice(0, 16)}...
+                  </div>
+                  <p
+                    style={{
+                      fontSize: "0.82rem",
+                      margin: 0,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    Open your already trusted computer or phone, go to{" "}
+                    <strong>Settings &gt; Devices</strong>, and click{" "}
+                    <strong>Approve</strong>. Once approved, click Sign In.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    style={{ flex: 1, padding: "0.6rem" }}
+                    onClick={handlePairNewDevice}
+                    disabled={isSubmittingAuth || !authEmail}
+                  >
+                    📱 Pair as New Device
+                  </button>
+                </div>
+              )}
+
+              <details
+                style={{
+                  marginTop: "0.5rem",
+                  fontSize: "0.85rem",
+                  color: "#556b5a",
+                }}
+              >
+                <summary
+                  style={{
+                    cursor: "pointer",
+                    fontWeight: 500,
+                    padding: "0.25rem 0",
+                  }}
+                >
+                  Developer / Manual Device Credentials
+                </summary>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.75rem",
+                    marginTop: "0.75rem",
+                    padding: "0.75rem",
+                    background: "#f9fafb",
+                    borderRadius: "6px",
+                  }}
+                >
+                  <div>
+                    <label style={{ fontSize: "0.75rem" }}>
+                      <span>Device ID (UUID)</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. 67cf5dd1-..."
+                        value={authDeviceId}
+                        onChange={(e) => setAuthDeviceId(e.target.value)}
+                        style={{ width: "100%" }}
+                      />
+                    </label>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: "0.75rem" }}>
+                      <span>Credential Identifier</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. cred-..."
+                        value={authCredentialId}
+                        onChange={(e) => setAuthCredentialId(e.target.value)}
+                        style={{ width: "100%" }}
+                      />
+                    </label>
+                  </div>
+                  <button
+                    type="submit"
+                    className="primary-btn"
+                    style={{
+                      width: "100%",
+                      padding: "0.5rem",
+                      fontSize: "0.88rem",
+                    }}
+                    disabled={
+                      isSubmittingAuth || !authDeviceId || !authCredentialId
+                    }
+                  >
+                    {isSubmittingAuth
+                      ? "Signing In..."
+                      : "Sign In with Manual Credentials"}
+                  </button>
+                </div>
+              </details>
+
+              {hasStoredDevice && (
+                <div style={{ textAlign: "center", marginTop: "0.5rem" }}>
+                  <button
+                    type="button"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#556b5a",
+                      cursor: "pointer",
+                      fontSize: "0.82rem",
+                      textDecoration: "underline",
+                    }}
+                    onClick={() => setUseManualCredentials(false)}
+                  >
+                    ← Back to Saved Device
+                  </button>
+                  <span style={{ margin: "0 0.5rem", color: "#ccc" }}>•</span>
+                  <button
+                    type="button"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#b91c1c",
+                      cursor: "pointer",
+                      fontSize: "0.82rem",
+                      textDecoration: "underline",
+                    }}
+                    onClick={handleForgetDevice}
+                  >
+                    Forget this device
+                  </button>
+                </div>
+              )}
             </form>
           )}
         </div>
