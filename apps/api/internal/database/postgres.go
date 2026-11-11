@@ -1987,6 +1987,7 @@ func (r *PostgresRepository) DeleteAttachment(
 	if n == 0 {
 		return ErrNotFound
 	}
+	_, _ = r.db.ExecContext(ctx, `DELETE FROM attachment_blobs WHERE attachment_id = $1`, attachmentID)
 	return nil
 }
 
@@ -1998,6 +1999,20 @@ func (r *PostgresRepository) SaveAttachmentBlob(
 	data []byte,
 ) error {
 	_, err := r.GetAttachment(ctx, accountID, vaultID, attachmentID)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.db.ExecContext(
+		ctx,
+		`INSERT INTO attachment_blobs (attachment_id, ciphertext_blob, created_at)
+		 VALUES ($1, $2, now())
+		 ON CONFLICT (attachment_id) DO UPDATE
+		 SET ciphertext_blob = EXCLUDED.ciphertext_blob,
+		     created_at = EXCLUDED.created_at`,
+		attachmentID,
+		data,
+	)
 	return err
 }
 
@@ -2011,7 +2026,20 @@ func (r *PostgresRepository) GetAttachmentBlob(
 	if err != nil {
 		return nil, err
 	}
-	return nil, errors.New("blob storage not configured for postgres direct retrieval")
+
+	var data []byte
+	err = r.db.QueryRowContext(
+		ctx,
+		`SELECT ciphertext_blob FROM attachment_blobs WHERE attachment_id = $1`,
+		attachmentID,
+	).Scan(&data)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return data, nil
 }
 
 func (r *PostgresRepository) SaveBackupMetadata(
