@@ -336,7 +336,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
                     <div
                       style={{
                         fontSize: "0.75rem",
-                        color: "#556b5a",
+                        color: "var(--xai-mute, #7d8187)",
                         marginTop: "0.2rem",
                       }}
                     >

@@ -211,7 +211,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           ) : (
             <p
-              style={{ color: "#6a7c6f", fontSize: "0.9rem", margin: "1rem 0" }}
+              style={{ color: "var(--xai-mute, #7d8187)", fontSize: "0.9rem", margin: "1rem 0" }}
             >
               No records in this vault yet. Click "+ Add Item" to store your
               first password or note.

@@ -43,7 +43,7 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
       return (
         <div
           className="card cms-welcome-section"
-          style={{ borderLeft: "4px solid var(--primary-color)" }}
+          style={{ borderLeft: "2px solid var(--xai-ink, #ffffff)" }}
         >
           <div
             style={{
@@ -56,18 +56,20 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
               <h2 style={{ margin: "0 0 0.25rem", fontSize: "1.3rem" }}>
                 {greeting}
               </h2>
-              <p style={{ margin: 0, color: "#556b5a", fontSize: "0.9rem" }}>
+              <p style={{ margin: 0, color: "var(--xai-mute, #7d8187)", fontSize: "0.9rem" }}>
                 {subtitle}
               </p>
             </div>
             <span
               style={{
-                background: "#dcfce7",
-                color: "#166534",
+                background: "var(--xai-canvas-soft, #1a1c20)",
+                border: "1px solid var(--xai-hairline, #212327)",
+                color: "var(--xai-accent-breeze, #a0c3ec)",
                 padding: "0.25rem 0.6rem",
                 borderRadius: "9999px",
                 fontSize: "0.75rem",
-                fontWeight: 600,
+                fontWeight: 400,
+                fontFamily: "var(--font-mono)",
               }}
             >
               🔒 End-to-End Encrypted
@@ -93,18 +95,19 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
           >
             <div
               style={{
-                background: "#f8faf8",
+                background: "var(--xai-canvas-soft, #1a1c20)",
                 padding: "1rem",
                 borderRadius: "8px",
-                border: "1px solid #e1e7e2",
+                border: "1px solid var(--xai-hairline, #212327)",
               }}
             >
               <div
                 style={{
                   fontSize: "0.78rem",
-                  color: "#556b5a",
+                  color: "var(--xai-mute, #7d8187)",
                   textTransform: "uppercase",
-                  fontWeight: 600,
+                  fontFamily: "var(--font-mono)",
+                  letterSpacing: "1.2px",
                 }}
               >
                 Active Records
@@ -112,9 +115,9 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
               <div
                 style={{
                   fontSize: "1.5rem",
-                  fontWeight: 700,
+                  fontWeight: 400,
                   marginTop: "0.25rem",
-                  color: "var(--primary-color)",
+                  color: "var(--xai-ink, #ffffff)",
                 }}
               >
                 {actions?.recordCount ?? 0}
@@ -122,18 +125,19 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
             </div>
             <div
               style={{
-                background: "#f8faf8",
+                background: "var(--xai-canvas-soft, #1a1c20)",
                 padding: "1rem",
                 borderRadius: "8px",
-                border: "1px solid #e1e7e2",
+                border: "1px solid var(--xai-hairline, #212327)",
               }}
             >
               <div
                 style={{
                   fontSize: "0.78rem",
-                  color: "#556b5a",
+                  color: "var(--xai-mute, #7d8187)",
                   textTransform: "uppercase",
-                  fontWeight: 600,
+                  fontFamily: "var(--font-mono)",
+                  letterSpacing: "1.2px",
                 }}
               >
                 Encryption Engine
@@ -141,8 +145,9 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
               <div
                 style={{
                   fontSize: "0.95rem",
-                  fontWeight: 600,
+                  fontWeight: 400,
                   marginTop: "0.4rem",
+                  color: "var(--xai-ink, #ffffff)",
                 }}
               >
                 Argon2id (p=4) + AES-256-GCM
@@ -150,18 +155,19 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
             </div>
             <div
               style={{
-                background: "#f8faf8",
+                background: "var(--xai-canvas-soft, #1a1c20)",
                 padding: "1rem",
                 borderRadius: "8px",
-                border: "1px solid #e1e7e2",
+                border: "1px solid var(--xai-hairline, #212327)",
               }}
             >
               <div
                 style={{
                   fontSize: "0.78rem",
-                  color: "#556b5a",
+                  color: "var(--xai-mute, #7d8187)",
                   textTransform: "uppercase",
-                  fontWeight: 600,
+                  fontFamily: "var(--font-mono)",
+                  letterSpacing: "1.2px",
                 }}
               >
                 Local Store
@@ -169,9 +175,9 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
               <div
                 style={{
                   fontSize: "0.95rem",
-                  fontWeight: 600,
+                  fontWeight: 400,
                   marginTop: "0.4rem",
-                  color: "#166534",
+                  color: "var(--xai-accent-breeze, #a0c3ec)",
                 }}
               >
                 IndexedDB (pdv_local_store)
@@ -237,7 +243,7 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
           <h3 style={{ margin: "0 0 0.5rem", fontSize: "1.1rem" }}>
             {section.title || "Recent Activity"}
           </h3>
-          <p style={{ margin: 0, color: "#556b5a", fontSize: "0.88rem" }}>
+          <p style={{ margin: 0, color: "var(--xai-mute, #7d8187)", fontSize: "0.88rem" }}>
             Local records are encrypted with AES-256-GCM. Unlocked records
             appear in the vault inventory below.
           </p>
@@ -264,20 +270,21 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
                   key={cat}
                   style={{
                     padding: "0.85rem",
-                    background: "#f8faf8",
-                    border: "1px solid #e1e7e2",
+                    background: "var(--xai-canvas-soft, #1a1c20)",
+                    border: "1px solid var(--xai-hairline, #212327)",
                     borderRadius: "8px",
                     textAlign: "center",
                   }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
+                  <div style={{ fontWeight: 400, fontSize: "0.9rem", color: "var(--xai-ink, #ffffff)" }}>
                     {cat}
                   </div>
                   <div
                     style={{
                       fontSize: "0.75rem",
-                      color: "#556b5a",
+                      color: "var(--xai-mute, #7d8187)",
                       marginTop: "0.2rem",
+                      fontFamily: "var(--font-mono)",
                     }}
                   >
                     Encrypted Store
@@ -296,21 +303,21 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
         <div
           className="card cms-custom-info-section"
           style={{
-            background: "#f0fdf4",
-            border: "1px solid #bbf7d0",
+            background: "var(--xai-canvas-card, #191919)",
+            border: "1px solid rgba(160, 195, 236, 0.35)",
           }}
         >
           <h4
             style={{
               margin: "0 0 0.35rem",
               fontSize: "1rem",
-              color: "#166534",
+              color: "var(--xai-accent-breeze, #a0c3ec)",
             }}
           >
             {section.title}
           </h4>
           {text && (
-            <p style={{ margin: 0, fontSize: "0.88rem", color: "#15803d" }}>
+            <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--xai-body, #dadbdf)" }}>
               {text}
             </p>
           )}
@@ -327,20 +334,20 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
         <div
           className="card cms-help-section"
           style={{
-            background: "#eff6ff",
-            border: "1px solid #bfdbfe",
+            background: "var(--xai-canvas-card, #191919)",
+            border: "1px solid rgba(196, 181, 253, 0.35)",
           }}
         >
           <h4
             style={{
               margin: "0 0 0.35rem",
               fontSize: "1rem",
-              color: "#1e40af",
+              color: "var(--xai-accent-twilight, #c4b5fd)",
             }}
           >
             💡 {section.title || "Security Tips"}
           </h4>
-          <p style={{ margin: 0, fontSize: "0.85rem", color: "#1d4ed8" }}>
+          <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--xai-body, #dadbdf)" }}>
             {helpText}
           </p>
         </div>

@@ -107,7 +107,7 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
             <p
               style={{
                 fontSize: "0.85rem",
-                color: "#556b5a",
+                color: "var(--xai-mute, #7d8187)",
                 margin: "0 0 1rem",
               }}
             >
@@ -140,7 +140,7 @@ export const CreateVaultModal: React.FC<CreateVaultModalProps> = ({
                   <div
                     style={{
                       fontSize: "0.75rem",
-                      color: "#556b5a",
+                      color: "var(--xai-mute, #7d8187)",
                       marginTop: "0.2rem",
                     }}
                   >

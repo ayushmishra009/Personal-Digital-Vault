@@ -72,12 +72,14 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
         return (
           <span
             style={{
-              padding: "0.2rem 0.5rem",
-              borderRadius: "4px",
-              fontSize: "0.75rem",
-              backgroundColor: "#dcfce7",
-              color: "#166534",
-              fontWeight: 600,
+              padding: "0.2rem 0.65rem",
+              borderRadius: "9999px",
+              fontSize: "0.72rem",
+              backgroundColor: "rgba(160, 195, 236, 0.15)",
+              color: "var(--xai-accent-breeze, #a0c3ec)",
+              border: "1px solid rgba(160, 195, 236, 0.35)",
+              fontWeight: 400,
+              fontFamily: "var(--font-mono)",
             }}
           >
             New
@@ -87,12 +89,14 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
         return (
           <span
             style={{
-              padding: "0.2rem 0.5rem",
-              borderRadius: "4px",
-              fontSize: "0.75rem",
-              backgroundColor: "#dbeafe",
-              color: "#1e40af",
-              fontWeight: 600,
+              padding: "0.2rem 0.65rem",
+              borderRadius: "9999px",
+              fontSize: "0.72rem",
+              backgroundColor: "rgba(196, 181, 253, 0.15)",
+              color: "var(--xai-accent-twilight, #c4b5fd)",
+              border: "1px solid rgba(196, 181, 253, 0.35)",
+              fontWeight: 400,
+              fontFamily: "var(--font-mono)",
             }}
           >
             Update
@@ -102,12 +106,14 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
         return (
           <span
             style={{
-              padding: "0.2rem 0.5rem",
-              borderRadius: "4px",
-              fontSize: "0.75rem",
-              backgroundColor: "#f3f4f6",
-              color: "#4b5563",
-              fontWeight: 600,
+              padding: "0.2rem 0.65rem",
+              borderRadius: "9999px",
+              fontSize: "0.72rem",
+              backgroundColor: "var(--xai-canvas-soft, #1a1c20)",
+              color: "var(--xai-mute, #7d8187)",
+              border: "1px solid var(--xai-hairline, #212327)",
+              fontWeight: 400,
+              fontFamily: "var(--font-mono)",
             }}
           >
             Identical
@@ -117,12 +123,14 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
         return (
           <span
             style={{
-              padding: "0.2rem 0.5rem",
-              borderRadius: "4px",
-              fontSize: "0.75rem",
-              backgroundColor: "#fee2e2",
-              color: "#991b1b",
-              fontWeight: 600,
+              padding: "0.2rem 0.65rem",
+              borderRadius: "9999px",
+              fontSize: "0.72rem",
+              backgroundColor: "rgba(255, 90, 90, 0.15)",
+              color: "#fca5a5",
+              border: "1px solid rgba(255, 90, 90, 0.35)",
+              fontWeight: 400,
+              fontFamily: "var(--font-mono)",
             }}
           >
             Older Conflict
@@ -132,12 +140,14 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
         return (
           <span
             style={{
-              padding: "0.2rem 0.5rem",
-              borderRadius: "4px",
-              fontSize: "0.75rem",
-              backgroundColor: "#fef3c7",
-              color: "#92400e",
-              fontWeight: 600,
+              padding: "0.2rem 0.65rem",
+              borderRadius: "9999px",
+              fontSize: "0.72rem",
+              backgroundColor: "rgba(255, 122, 23, 0.15)",
+              color: "var(--xai-accent-sunset, #ff7a17)",
+              border: "1px solid rgba(255, 122, 23, 0.35)",
+              fontWeight: 400,
+              fontFamily: "var(--font-mono)",
             }}
           >
             Divergent Conflict
@@ -202,9 +212,10 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
               style={{
                 padding: "0.5rem 0.75rem",
                 borderRadius: "6px",
-                border: "1px solid #bbf7d0",
-                backgroundColor: "#f0fdf4",
+                border: "1px solid var(--xai-hairline, #212327)",
+                backgroundColor: "var(--xai-canvas-soft, #1a1c20)",
                 fontSize: "0.85rem",
+                color: "var(--xai-ink, #ffffff)",
               }}
             >
               <strong>{plan.summary.newCount}</strong> New Records
@@ -213,9 +224,10 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
               style={{
                 padding: "0.5rem 0.75rem",
                 borderRadius: "6px",
-                border: "1px solid #bfdbfe",
-                backgroundColor: "#eff6ff",
+                border: "1px solid var(--xai-hairline, #212327)",
+                backgroundColor: "var(--xai-canvas-soft, #1a1c20)",
                 fontSize: "0.85rem",
+                color: "var(--xai-ink, #ffffff)",
               }}
             >
               <strong>{plan.summary.upgradedCount}</strong> Upgrades
@@ -224,9 +236,10 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
               style={{
                 padding: "0.5rem 0.75rem",
                 borderRadius: "6px",
-                border: "1px solid #e5e7eb",
-                backgroundColor: "#f9fafb",
+                border: "1px solid var(--xai-hairline, #212327)",
+                backgroundColor: "var(--xai-canvas-soft, #1a1c20)",
                 fontSize: "0.85rem",
+                color: "var(--xai-mute, #7d8187)",
               }}
             >
               <strong>{plan.summary.identicalCount}</strong> Identical
@@ -236,9 +249,9 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
                 style={{
                   padding: "0.5rem 0.75rem",
                   borderRadius: "6px",
-                  border: "1px solid #fecaca",
-                  backgroundColor: "#fef2f2",
-                  color: "#991b1b",
+                  border: "1px solid rgba(255, 122, 23, 0.4)",
+                  backgroundColor: "var(--xai-canvas-soft, #1a1c20)",
+                  color: "var(--xai-accent-sunset, #ff7a17)",
                   fontSize: "0.85rem",
                 }}
               >
@@ -250,9 +263,10 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
                 style={{
                   padding: "0.5rem 0.75rem",
                   borderRadius: "6px",
-                  border: "1px solid #e5e7eb",
-                  backgroundColor: "#f9fafb",
+                  border: "1px solid var(--xai-hairline, #212327)",
+                  backgroundColor: "var(--xai-canvas-soft, #1a1c20)",
                   fontSize: "0.85rem",
+                  color: "var(--xai-ink, #ffffff)",
                 }}
               >
                 <strong>{plan.attachments.length}</strong> Attachments
@@ -267,19 +281,16 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
               style={{
                 marginBottom: "1rem",
                 padding: "0.75rem 1rem",
-                border: "1px solid #fed7aa",
-                backgroundColor: "#fff7ed",
-                borderRadius: "6px",
               }}
             >
-              <strong style={{ color: "#9a3412" }}>
+              <strong>
                 ⚠️ Restore Conflict Safeguard:
               </strong>
               <p
                 style={{
                   margin: "0.25rem 0 0.5rem",
                   fontSize: "0.82rem",
-                  color: "#7c2d12",
+                  color: "var(--xai-body, #dadbdf)",
                 }}
               >
                 {plan.summary.conflictCount} record(s) in this archive have an
@@ -293,8 +304,8 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
                   alignItems: "center",
                   gap: "0.5rem",
                   fontSize: "0.82rem",
-                  color: "#991b1b",
-                  fontWeight: 600,
+                  color: "var(--xai-accent-sunset, #ff7a17)",
+                  fontWeight: 400,
                   cursor: "pointer",
                 }}
               >
@@ -319,7 +330,7 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
           >
             <thead>
               <tr
-                style={{ borderBottom: "2px solid #e5e7eb", textAlign: "left" }}
+                style={{ borderBottom: "1px solid var(--xai-hairline, #212327)", textAlign: "left" }}
               >
                 <th style={{ padding: "0.5rem" }}>
                   <input
@@ -344,10 +355,7 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
                 <tr
                   key={item.objectId}
                   style={{
-                    borderBottom: "1px solid #f3f4f6",
-                    backgroundColor: selectedIds.has(item.objectId)
-                      ? undefined
-                      : "#fafafa",
+                    borderBottom: "1px solid var(--xai-hairline, #212327)",
                   }}
                 >
                   <td style={{ padding: "0.5rem" }}>
@@ -358,14 +366,14 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
                       aria-label={`Select ${item.title}`}
                     />
                   </td>
-                  <td style={{ padding: "0.5rem", fontWeight: 500 }}>
+                  <td style={{ padding: "0.5rem", fontWeight: 400 }}>
                     {item.title}
                   </td>
-                  <td style={{ padding: "0.5rem", color: "#6b7280" }}>
+                  <td style={{ padding: "0.5rem", color: "var(--xai-mute, #7d8187)" }}>
                     {item.type}
                   </td>
-                  <td style={{ padding: "0.5rem" }}>v{item.backupRevision}</td>
-                  <td style={{ padding: "0.5rem", color: "#6b7280" }}>
+                  <td style={{ padding: "0.5rem", fontFamily: "var(--font-mono)" }}>v{item.backupRevision}</td>
+                  <td style={{ padding: "0.5rem", color: "var(--xai-mute, #7d8187)", fontFamily: "var(--font-mono)" }}>
                     {item.localRevision !== undefined
                       ? `v${item.localRevision}`
                       : "—"}
@@ -382,7 +390,7 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
                     style={{
                       padding: "1.5rem",
                       textAlign: "center",
-                      color: "#6b7280",
+                      color: "var(--xai-mute, #7d8187)",
                     }}
                   >
                     No records found in this backup archive.
@@ -402,7 +410,7 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
             marginTop: "1.25rem",
           }}
         >
-          <div style={{ fontSize: "0.82rem", color: "#6b7280" }}>
+          <div style={{ fontSize: "0.82rem", color: "var(--xai-mute, #7d8187)", fontFamily: "var(--font-mono)" }}>
             {selectedIds.size} of {plan.items.length} record(s) selected
           </div>
           <div style={{ display: "flex", gap: "0.5rem" }}>

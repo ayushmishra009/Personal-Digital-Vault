@@ -103,7 +103,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               style={{
                 margin: "0.2rem 0 0.5rem",
                 fontSize: "0.8rem",
-                color: "#556b5a",
+                color: "var(--xai-mute, #7d8187)",
               }}
             >
               Vault Encryption Keys (VEKs) and decrypted records are wiped from
@@ -207,7 +207,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <p
             style={{
               fontSize: "0.85rem",
-              color: "#556b5a",
+              color: "var(--xai-mute, #7d8187)",
               margin: "0 0 1rem",
             }}
           >
@@ -225,7 +225,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div style={{ marginTop: "1.5rem" }}>
             <button
               type="button"
-              className="btn-danger"
+              className="danger-btn"
               style={{ width: "100%", textAlign: "center" }}
               onClick={onClearLocalCache}
             >
@@ -242,7 +242,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <p
             style={{
               fontSize: "0.85rem",
-              color: "#556b5a",
+              color: "var(--xai-mute, #7d8187)",
               margin: "0 0 1rem",
             }}
           >

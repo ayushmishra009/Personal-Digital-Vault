@@ -62,7 +62,7 @@ export const PasswordsView: React.FC<PasswordsViewProps> = ({
           <span
             style={{
               fontSize: "0.82rem",
-              color: "#556b5a",
+              color: "var(--xai-mute, #7d8187)",
               alignSelf: "center",
             }}
           >

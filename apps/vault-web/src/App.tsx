@@ -794,7 +794,7 @@ export function App() {
 
   const currentTheme = appConfig?.theme || {
     themePreset: "default",
-    primaryColor: "#1c5230",
+    primaryColor: "#ffffff",
     borderRadius: "8px",
     density: "comfortable",
   };
@@ -819,28 +819,18 @@ export function App() {
   if (onboardingSecret) {
     return (
       <div style={{ maxWidth: 560, margin: "6vh auto", padding: "1.5rem" }}>
-        <div className="card" style={{ borderTop: "4px solid #1c5230" }}>
+        <div className="card" style={{ borderTop: "2px solid var(--xai-primary, #ffffff)" }}>
           <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
             <span style={{ fontSize: "2.5rem" }}>🎉</span>
             <h1 style={{ fontSize: "1.6rem", margin: "0.5rem 0 0.25rem" }}>
               Welcome to Your Vault!
             </h1>
-            <p style={{ color: "#556b5a", fontSize: "0.9rem", margin: 0 }}>
+            <p style={{ color: "var(--xai-mute, #7d8187)", fontSize: "0.9rem", margin: 0 }}>
               Your account, primary vault, and encryption keys are ready.
             </p>
           </div>
 
-          <div
-            className="warning-banner"
-            style={{
-              marginBottom: "1.25rem",
-              background: "#fffbeb",
-              border: "1px solid #fef3c7",
-              padding: "1rem",
-              borderRadius: "8px",
-              color: "#92400e",
-            }}
-          >
+          <div className="warning-banner" style={{ marginBottom: "1.25rem" }}>
             <strong>⚠️ Save Your Emergency Recovery Key</strong>
             <p style={{ margin: "0.35rem 0 0", lineHeight: 1.4 }}>
               Because your vault is end-to-end encrypted, the server never knows
@@ -850,29 +840,16 @@ export function App() {
           </div>
 
           <div style={{ marginBottom: "1rem" }}>
-            <span
-              style={{
-                fontSize: "0.8rem",
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-                color: "#556b5a",
-                fontWeight: 600,
-              }}
-            >
+            <span className="caption-mono" style={{ display: "block", marginBottom: "0.4rem" }}>
               Your 256-Bit Recovery Secret
             </span>
             <div
               className="secret-display font-mono"
               style={{
-                background: "#f3f4f6",
-                padding: "0.85rem",
-                borderRadius: "6px",
-                border: "1px solid #e5e7eb",
                 fontSize: "1.05rem",
                 wordBreak: "break-all",
                 textAlign: "center",
-                fontWeight: 600,
-                color: "#111827",
+                fontWeight: 400,
                 marginTop: "0.35rem",
               }}
             >
@@ -958,7 +935,7 @@ export function App() {
             <h1 style={{ fontSize: "1.75rem", margin: "0.5rem 0 0.25rem" }}>
               Personal Digital Vault
             </h1>
-            <p style={{ color: "#556b5a", fontSize: "0.85rem", margin: 0 }}>
+            <p style={{ color: "var(--xai-mute, #7d8187)", fontSize: "0.85rem", margin: 0 }}>
               Zero-Knowledge End-to-End Encrypted Storage
             </p>
           </div>
@@ -1033,7 +1010,7 @@ export function App() {
                       style={{
                         height: 4,
                         width: "100%",
-                        background: "#e5e7eb",
+                        background: "var(--xai-canvas-mid, #363a3f)",
                         borderRadius: 2,
                       }}
                     >
@@ -1050,7 +1027,7 @@ export function App() {
                     <div
                       style={{
                         fontSize: "0.75rem",
-                        color: "#556b5a",
+                        color: "var(--xai-mute, #7d8187)",
                         marginTop: "0.2rem",
                       }}
                     >
@@ -1083,7 +1060,7 @@ export function App() {
                   justifyContent: "space-between",
                   alignItems: "center",
                   fontSize: "0.8rem",
-                  color: "#556b5a",
+                  color: "var(--xai-mute, #7d8187)",
                 }}
               >
                 <label
@@ -1113,8 +1090,9 @@ export function App() {
               {authStatusMessage && (
                 <div
                   style={{
-                    background: "#eef5f0",
-                    color: "#1c5230",
+                    background: "var(--xai-canvas-soft, #1a1c20)",
+                    border: "1px solid var(--xai-hairline, #212327)",
+                    color: "var(--xai-ink, #ffffff)",
                     padding: "0.6rem 0.8rem",
                     borderRadius: "6px",
                     fontSize: "0.85rem",
@@ -1146,8 +1124,8 @@ export function App() {
                 </h2>
                 <p
                   style={{
-                    fontWeight: 600,
-                    color: "#1c5230",
+                    fontWeight: 400,
+                    color: "var(--xai-ink, #ffffff)",
                     fontSize: "1.05rem",
                     margin: "0.25rem 0",
                   }}
@@ -1159,8 +1137,9 @@ export function App() {
                     display: "inline-flex",
                     alignItems: "center",
                     gap: "0.35rem",
-                    background: "#eef5f0",
-                    color: "#1c5230",
+                    background: "var(--xai-canvas-soft, #1a1c20)",
+                    border: "1px solid var(--xai-hairline, #212327)",
+                    color: "var(--xai-body, #dadbdf)",
                     padding: "0.25rem 0.65rem",
                     borderRadius: "16px",
                     fontSize: "0.8rem",
@@ -1193,7 +1172,7 @@ export function App() {
                   style={{
                     background: "none",
                     border: "none",
-                    color: "#556b5a",
+                    color: "var(--xai-mute, #7d8187)",
                     cursor: "pointer",
                     textDecoration: "underline",
                   }}
@@ -1222,11 +1201,11 @@ export function App() {
               {pairingChallenge ? (
                 <div
                   style={{
-                    background: "#f0f9ff",
-                    border: "1px solid #bae6fd",
+                    background: "var(--xai-canvas-soft, #1a1c20)",
+                    border: "1px solid var(--xai-hairline, #212327)",
                     borderRadius: "8px",
                     padding: "1rem",
-                    color: "#0369a1",
+                    color: "var(--xai-accent-breeze, #a0c3ec)",
                   }}
                 >
                   <strong>📱 Device Pairing Code Generated</strong>
@@ -1271,7 +1250,7 @@ export function App() {
                 style={{
                   marginTop: "0.5rem",
                   fontSize: "0.85rem",
-                  color: "#556b5a",
+                  color: "var(--xai-mute, #7d8187)",
                 }}
               >
                 <summary
@@ -1290,7 +1269,8 @@ export function App() {
                     gap: "0.75rem",
                     marginTop: "0.75rem",
                     padding: "0.75rem",
-                    background: "#f9fafb",
+                    background: "var(--xai-canvas-soft, #1a1c20)",
+                    border: "1px solid var(--xai-hairline, #212327)",
                     borderRadius: "6px",
                   }}
                 >
@@ -1344,7 +1324,7 @@ export function App() {
                     style={{
                       background: "none",
                       border: "none",
-                      color: "#556b5a",
+                      color: "var(--xai-mute, #7d8187)",
                       cursor: "pointer",
                       fontSize: "0.82rem",
                       textDecoration: "underline",
@@ -1353,13 +1333,13 @@ export function App() {
                   >
                     ← Back to Saved Device
                   </button>
-                  <span style={{ margin: "0 0.5rem", color: "#ccc" }}>•</span>
+                  <span style={{ margin: "0 0.5rem", color: "var(--xai-hairline, #212327)" }}>•</span>
                   <button
                     type="button"
                     style={{
                       background: "none",
                       border: "none",
-                      color: "#b91c1c",
+                      color: "var(--xai-accent-sunset, #ff7a17)",
                       cursor: "pointer",
                       fontSize: "0.82rem",
                       textDecoration: "underline",
@@ -1383,13 +1363,13 @@ export function App() {
       <div style={{ maxWidth: 500, margin: "10vh auto", padding: "1.5rem" }}>
         <div
           className="card"
-          style={{ borderLeft: "4px solid #f59e0b", textAlign: "center" }}
+          style={{ borderLeft: "2px solid var(--xai-accent-sunset, #ff7a17)", textAlign: "center" }}
         >
           <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>⏳</div>
           <h2>Device Approval Pending</h2>
           <p
             style={{
-              color: "#556b5a",
+              color: "var(--xai-mute, #7d8187)",
               fontSize: "0.9rem",
               margin: "0.5rem 0 1.25rem",
             }}

@@ -152,7 +152,7 @@ export const ConflictResolutionModal: React.FC<
       <div className="modal-card modal-lg">
         <div className="modal-header">
           <div>
-            <h3 style={{ margin: 0, color: "var(--color-danger, #ef4444)" }}>
+            <h3 style={{ margin: 0, color: "var(--xai-accent-sunset, #ff7a17)" }}>
               ⚠️ Revision Conflict Detected
             </h3>
             <p className="modal-subtitle">

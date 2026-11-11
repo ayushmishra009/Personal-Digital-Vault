@@ -79,13 +79,13 @@ export const DevicesView: React.FC<DevicesViewProps> = ({
       {pendingDevices.length > 0 && (
         <div
           className="card"
-          style={{ borderLeft: "4px solid #f59e0b", marginBottom: "1.5rem" }}
+          style={{ borderLeft: "2px solid var(--xai-accent-sunset, #ff7a17)", marginBottom: "1.5rem" }}
         >
           <h3
             style={{
               margin: "0 0 0.5rem",
               fontSize: "1.1rem",
-              color: "#b45309",
+              color: "var(--xai-accent-sunset, #ff7a17)",
             }}
           >
             ⚠️ Pending Device Enrollments ({pendingDevices.length})
@@ -94,7 +94,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({
             style={{
               margin: "0 0 1rem",
               fontSize: "0.85rem",
-              color: "#92400e",
+              color: "var(--xai-body, #dadbdf)",
             }}
           >
             These devices have authenticated with account credentials but
@@ -116,7 +116,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({
                   <tr key={d.id}>
                     <td>
                       <strong>{d.label}</strong>
-                      <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                      <div style={{ fontSize: "0.75rem", color: "var(--xai-mute, #7d8187)", fontFamily: "var(--font-mono)" }}>
                         {d.id}
                       </div>
                     </td>
@@ -175,7 +175,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({
                         Current Device
                       </span>
                     )}
-                    <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                    <div style={{ fontSize: "0.75rem", color: "var(--xai-mute, #7d8187)", fontFamily: "var(--font-mono)" }}>
                       {d.id}
                     </div>
                   </td>
@@ -189,9 +189,9 @@ export const DevicesView: React.FC<DevicesViewProps> = ({
                     {!isCurrent && (
                       <button
                         type="button"
-                        className="btn-danger"
+                        className="danger-btn btn-sm"
                         style={{
-                          padding: "0.25rem 0.5rem",
+                          padding: "0.25rem 0.65rem",
                           fontSize: "0.78rem",
                         }}
                         onClick={() => {
@@ -235,7 +235,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({
 
             {latestChallenge ? (
               <div>
-                <p style={{ fontSize: "0.9rem", color: "#556b5a" }}>
+                <p style={{ fontSize: "0.9rem", color: "var(--xai-mute, #7d8187)" }}>
                   A pairing challenge was created. Enter this challenge and
                   Enrollment ID on the new device:
                 </p>
@@ -248,7 +248,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({
                 <p
                   style={{
                     fontSize: "0.8rem",
-                    color: "#6b7280",
+                    color: "var(--xai-mute, #7d8187)",
                     marginTop: "0.5rem",
                   }}
                 >

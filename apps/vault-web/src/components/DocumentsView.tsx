@@ -350,13 +350,13 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
           style={{
             fontSize: "1.1rem",
             marginBottom: "0.75rem",
-            color: "#334155",
+            color: "var(--xai-ink, #ffffff)",
           }}
         >
           Encrypted File Attachments ({attachments.length})
         </h3>
         {loadingAttachments ? (
-          <p style={{ color: "#64748b", fontSize: "0.9rem" }}>
+          <p style={{ color: "var(--xai-mute, #7d8187)", fontSize: "0.9rem" }}>
             Loading attachments...
           </p>
         ) : attachments.length > 0 ? (
@@ -421,8 +421,8 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
             <p
               style={{
                 margin: "0 0 0.5rem",
-                color: "#475569",
-                fontWeight: 500,
+                color: "var(--xai-body, #dadbdf)",
+                fontWeight: 400,
               }}
             >
               No binary attachments uploaded yet
@@ -430,7 +430,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
             <p
               style={{
                 margin: "0 0 1rem",
-                color: "#94a3b8",
+                color: "var(--xai-mute, #7d8187)",
                 fontSize: "0.82rem",
               }}
             >
@@ -454,7 +454,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
         style={{
           fontSize: "1.1rem",
           marginBottom: "0.75rem",
-          color: "#334155",
+          color: "var(--xai-ink, #ffffff)",
         }}
       >
         Document Records ({records.length})

@@ -94,7 +94,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
           <p
             style={{
               fontSize: "0.85rem",
-              color: "#556b5a",
+              color: "var(--xai-mute, #7d8187)",
               margin: "0 0 1rem",
             }}
           >
@@ -143,7 +143,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
           <p
             style={{
               fontSize: "0.85rem",
-              color: "#556b5a",
+              color: "var(--xai-mute, #7d8187)",
               margin: "0 0 1.25rem",
             }}
           >
@@ -168,8 +168,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               <div
                 style={{
                   fontSize: "0.78rem",
-                  color: "#6b7280",
+                  color: "var(--xai-mute, #7d8187)",
                   marginTop: "0.25rem",
+                  fontFamily: "var(--font-mono)",
                 }}
               >
                 Exports authenticated package (AES-256-GCM + HKDF) with
@@ -177,7 +178,7 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               </div>
             </div>
 
-            <div style={{ borderTop: "1px solid #edf2ee", paddingTop: "1rem" }}>
+            <div style={{ borderTop: "1px solid var(--xai-hairline, #212327)", paddingTop: "1rem" }}>
               <label
                 className="btn-secondary"
                 style={{
@@ -198,8 +199,9 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               <div
                 style={{
                   fontSize: "0.78rem",
-                  color: "#6b7280",
+                  color: "var(--xai-mute, #7d8187)",
                   marginTop: "0.25rem",
+                  fontFamily: "var(--font-mono)",
                 }}
               >
                 Validates integrity manifest and opens review staging modal
@@ -211,11 +213,11 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               style={{
                 marginTop: "0.5rem",
                 padding: "0.6rem",
-                backgroundColor: "#f9fafb",
+                backgroundColor: "var(--xai-canvas-soft, #1a1c20)",
                 borderRadius: "4px",
-                border: "1px solid #e5e7eb",
+                border: "1px solid var(--xai-hairline, #212327)",
                 fontSize: "0.74rem",
-                color: "#6b7280",
+                color: "var(--xai-mute, #7d8187)",
               }}
             >
               <strong>🔒 Metadata Disclosure:</strong> The backend tracks
