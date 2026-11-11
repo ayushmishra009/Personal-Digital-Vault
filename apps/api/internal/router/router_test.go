@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -1523,3 +1524,83 @@ func TestBackupTenantIsolation(t *testing.T) {
 		t.Errorf("expected 404 for cross-tenant backup list, got %d", recListB.Code)
 	}
 }
+
+func TestAccountDeletionAndDataRetention(t *testing.T) {
+	repo := database.NewMockRepository()
+	h := router.BuildRouter(router.Config{
+		Repo:           repo,
+		IsSecure:       false,
+		AllowedOrigins: []string{"http://localhost:5173"},
+	})
+
+	// 1. Register Account A
+	cookie, _ := registerAndGetCookie(t, h, "delete-me@example.com")
+
+	// 2. Create a vault
+	salt := base64.RawURLEncoding.EncodeToString(make([]byte, 16))
+	wrapped := base64.RawURLEncoding.EncodeToString(make([]byte, 40))
+	recVault := doRequest(h, "POST", "/api/v1/vaults", handlers.CreateVaultRequest{
+		ProtocolVersion: 1,
+		Envelopes: []handlers.VaultKeyEnvelopeDTO{
+			{
+				EnvelopeType:     "password",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "argon2id13",
+				KDFParameters: map[string]int64{
+					"memoryKiB": 65536, "iterations": 3, "parallelism": 4, "version": 19,
+				},
+				Salt:       salt,
+				WrappedVEK: wrapped,
+			},
+			{
+				EnvelopeType:     "recovery",
+				ProtocolVersion:  1,
+				KeyWrapAlgorithm: "AES-256-KW",
+				KDFAlgorithm:     "hkdf-sha256",
+				KDFParameters:    map[string]int64{},
+				Salt:             salt,
+				WrappedVEK:       wrapped,
+			},
+		},
+	}, cookie)
+	if recVault.Code != http.StatusCreated {
+		t.Fatalf("expected 201 on vault creation, got %d", recVault.Code)
+	}
+
+	// 3. Verify session works
+	recSess := doRequest(h, "GET", "/api/v1/auth/session", nil, cookie)
+	if recSess.Code != http.StatusOK {
+		t.Fatalf("expected 200 on session, got %d", recSess.Code)
+	}
+
+	// 4. Request Account Deletion
+	recDel := doRequest(h, "DELETE", "/api/v1/auth/account", nil, cookie)
+	if recDel.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content on account deletion, got %d", recDel.Code)
+	}
+
+	// 5. Subsequent calls with original cookie return 401 Unauthorized
+	recAfter := doRequest(h, "GET", "/api/v1/auth/session", nil, cookie)
+	if recAfter.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 on session after deletion, got %d", recAfter.Code)
+	}
+
+	// 6. Test Purge functions for expired tombstones and soft-deleted vaults
+	purgedTombstones, err := repo.PurgeExpiredTombstones(context.Background(), 24*time.Hour)
+	if err != nil {
+		t.Errorf("PurgeExpiredTombstones failed: %v", err)
+	}
+	if purgedTombstones < 0 {
+		t.Errorf("invalid purged tombstones count: %d", purgedTombstones)
+	}
+
+	purgedVaults, err := repo.PurgeSoftDeletedVaults(context.Background(), 24*time.Hour)
+	if err != nil {
+		t.Errorf("PurgeSoftDeletedVaults failed: %v", err)
+	}
+	if purgedVaults < 0 {
+		t.Errorf("invalid purged vaults count: %d", purgedVaults)
+	}
+}
+

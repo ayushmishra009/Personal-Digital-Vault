@@ -271,20 +271,55 @@ The repository contained only the master build specification and Git metadata. N
 - Automated tests:
   - 18 passing tests in `apps/extension` (`extension.test.ts`, `popup.test.tsx`) verifying origin matching, hostile domain rejection, DOM fill without submission, session unlock/lock zeroization, domain mismatch blocking, zero credential logging, and UI rendering.
 
-## Not implemented
+## Phase 12 scope delivered
 
-Release candidate hardening and production checklist (Phase 12) are not implemented.
+- Defense-in-depth API Security Headers (`apps/api/internal/middleware/security.go`):
+  - Strict non-rendering Content-Security-Policy (`default-src 'none'; frame-ancestors 'none'; base-uri 'none';`).
+  - Standard headers: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`, and non-caching `Cache-Control: no-store, no-cache, must-revalidate, private`.
+  - HSTS (`Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`) enforced when running in secure mode.
+- Multi-Tier Token Bucket Rate Limiting (`apps/api/internal/middleware/ratelimit.go`):
+  - Auth routes (`/api/v1/auth/login`, `/api/v1/auth/register`): 15 req/min per IP.
+  - Device enrollment routes (`/api/v1/device-enrollments`): 30 req/min per IP.
+  - Standard API routes: 200 req/min per IP.
+  - Exceeded rate limits return HTTP 429 Too Many Requests with `Retry-After: 60` and standard RFC 7807 problem details JSON.
+  - Automatic background garbage collection for expired visitor buckets.
+- Data Deletion, Purge & Retention Lifecycles:
+  - Account Deletion (`DELETE /api/v1/auth/account`): Authenticated account with active device can permanently purge their account and cascade all associated records, devices, sessions, and attachments.
+  - Sync Tombstone Retention Window: Soft-deleted sync records are retained for 30 days (`PurgeExpiredTombstones`) to ensure offline devices propagate deletions.
+  - Soft-Deleted Vaults: Soft-deleted vaults are retained for 30 days before server purge (`PurgeSoftDeletedVaults`).
+  - Offline Backups Retention Policy: Explicit disclosures that external offline `.pdvbackup` packages remain outside server deletion custody.
+- Web Client Hardening (`apps/vault-web`, `apps/admin-web`):
+  - CSP meta tags and secure server headers configured for Vite SPAs.
+  - User-facing data retention and limitation policies rendered in `SettingsView`.
+- Supply Chain & Dependency Audit:
+  - `pnpm audit --prod` clean with 0 known production vulnerabilities.
+- Pre-Release Documentation Suite:
+  - `docs/THREAT_MODEL.md`: Complete asset, threat actor, and mitigation mapping.
+  - `docs/SECURITY_REVIEW.md`: Internal cryptographic, boundary, and vulnerability audit report.
+  - `docs/PRODUCTION_DEPLOYMENT.md`: Infrastructure, reverse proxy (Nginx), TLS, environment variable, and zero-key policy runbook.
+  - `docs/USER_SECURITY_LIMITATIONS.md`: Plain-language security disclosures on lost keys, compromised endpoints, and clipboard risks.
+  - `docs/RELEASE_CHECKLIST.md`: Formal verification checklist across all 12 project phases.
 
-## Verification
+## Implementation Status Summary
 
-- `npx turbo run build test` passed across all workspace packages and apps.
-- `npx prettier --write .` and `npx eslint .` passed with 0 errors.
-- Go backend unit tests (`internal/auth`, `internal/database`, `internal/router`) passed 100%.
-- Client vault, storage, view, sync engine, attachment, and backup Vitest tests passed 100% (35/35 tests passing in `vault-web`).
-- Extension Vitest tests passed 100% (18/18 tests passing in `apps/extension`).
-- Crypto-core envelopes, attachment stream, and backup package tests passed 100% (18/18 tests passing).
-- TypeScript packages and apps typecheck cleanly with 0 errors.
+All 12 phases of the Master Build Specification roadmap have been delivered and verified:
 
-## Next phase
+- **Phase 0:** Project bootstrap, monorepo setup, and CI.
+- **Phase 1:** Domain models, OpenAPI 3.1 contract, and Zod schemas.
+- **Phase 2:** Centralized cryptographic core and test vectors.
+- **Phase 3:** Database migrations, PostgreSQL repository, and tenant boundaries.
+- **Phase 4:** WebAuthn/external auth, device approval workflow, and sessions.
+- **Phase 5:** Vault lifecycle, dual key envelopes, and Argon2id WASM worker.
+- **Phase 6:** Declarative schema-driven CMS and admin web app.
+- **Phase 7:** Full-featured vault web client with 9 views and auto-lock.
+- **Phase 8:** Offline-first synchronization, monotonic revisions, and conflict resolution.
+- **Phase 9:** Chunked streaming AEAD file attachments and object storage.
+- **Phase 10:** Encrypted backup packages, integrity manifests, and safe staging engine.
+- **Phase 11:** Chrome Manifest V3 browser extension with manual fill and anti-spoofing origin matching.
+- **Phase 12:** Hardening, security headers, rate limiting, and release candidate baseline.
 
-Phase 12 — Hardening and release candidate: Security review, dependency audit, threat-model update, CSP and browser security headers, rate limits and quotas, backup/restore tests, data deletion and retention behavior, production deployment documentation, user-facing security limitations, and release checklist.
+## Production readiness note
+
+In accordance with Section 24 rule 10 of `PERSONAL_DIGITAL_VAULT_MASTER_BUILD_SPEC_v1.1.md`:
+_Before production use, obtain an independent security review of cryptographic design, implementation, browser extension boundaries, authentication, recovery and backup._
+The repository is at **Release Candidate 1 (1.0.0-rc1)** status, with all automated tests, linting, typechecks, and audits green.

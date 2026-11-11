@@ -2120,3 +2120,52 @@ func (r *PostgresRepository) ListBackupMetadata(
 	}
 	return list, rows.Err()
 }
+
+func (r *PostgresRepository) DeleteAccount(ctx context.Context, accountID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+
+	return tx.Commit()
+}
+
+func (r *PostgresRepository) PurgeExpiredTombstones(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-olderThan)
+	res, err := r.db.ExecContext(
+		ctx,
+		`DELETE FROM sync_events WHERE kind = 'delete' AND created_at < $1`,
+		cutoff,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func (r *PostgresRepository) PurgeSoftDeletedVaults(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-olderThan)
+	res, err := r.db.ExecContext(
+		ctx,
+		`DELETE FROM vaults WHERE status = 'deleted' AND deleted_at < $1`,
+		cutoff,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+

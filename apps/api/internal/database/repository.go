@@ -101,4 +101,9 @@ type Repository interface {
 	// Backup & Snapshots
 	SaveBackupMetadata(ctx context.Context, accountID string, vaultID string, input *domain.CreateBackupMetadataInput) (*domain.BackupMetadata, error)
 	ListBackupMetadata(ctx context.Context, accountID string, vaultID string) ([]domain.BackupMetadata, error)
+
+	// Data Retention & Deletion
+	DeleteAccount(ctx context.Context, accountID string) error
+	PurgeExpiredTombstones(ctx context.Context, olderThan time.Duration) (int64, error)
+	PurgeSoftDeletedVaults(ctx context.Context, olderThan time.Duration) (int64, error)
 }

@@ -233,6 +233,47 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Data Retention & Deletion Policy */}
+        <div className="card">
+          <h3 style={{ margin: "0 0 1rem", fontSize: "1.1rem" }}>
+            Data Retention & Deletion Policy
+          </h3>
+          <p
+            style={{
+              fontSize: "0.85rem",
+              color: "#556b5a",
+              margin: "0 0 1rem",
+            }}
+          >
+            Review lifecycle policies regarding record deletion, tombstones, and
+            backups.
+          </p>
+          <div className="settings-item">
+            <span className="field-name">Sync Tombstone Window</span>
+            <span className="field-text">
+              30 Days (Prevents Stale Device Overwrites)
+            </span>
+          </div>
+          <div className="settings-item">
+            <span className="field-name">Soft-Deleted Vaults</span>
+            <span className="field-text">
+              Retained 30 Days before Server Purge
+            </span>
+          </div>
+          <div className="settings-item">
+            <span className="field-name">Offline Backups</span>
+            <span className="field-text">
+              Manual .pdvbackup files remain outside server deletion
+            </span>
+          </div>
+          <div className="settings-item">
+            <span className="field-name">Account Deletion</span>
+            <span className="field-text">
+              Cascades and deletes all server data permanently
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );

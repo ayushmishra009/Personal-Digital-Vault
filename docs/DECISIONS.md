@@ -241,3 +241,35 @@ Reference: [RustFS 1.0.4 release](https://github.com/rustfs/rustfs/releases) and
    - Extension lock immediately sets `unlockedVek = null` and zeroes decrypted records cache.
    - Plaintext passwords, recovery secrets, and cryptographic keys are strictly excluded from `console.log`, `console.info`, `console.warn`, and `console.error` across all extension contexts.<br>
      **Reason:** Fulfills Section H ("Chrome extension") and Phase 11 acceptance criteria of the Master Build Spec. Protects against hostile web origins, phishing, cross-origin iframe attacks, credential leakage, and key exposure.
+
+## ADR-0019: Production Hardening, Security Headers, Rate Limiting, and Release Candidate Baseline
+
+**Status:** Accepted for Phase 12<br>
+**Decision:** Establish production-grade application hardening, defense-in-depth HTTP security headers, multi-tier rate limiting, data deletion/retention lifecycles, and a formal release candidate baseline:
+
+1. **API Security Headers & Strict Non-Rendering CSP:**
+   - Go API enforces defense-in-depth headers on all responses via `middleware.SecurityHeaders`:
+     - `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none';` ensuring the API cannot be framed or injected into browser browsing contexts.
+     - `X-Frame-Options: DENY` preventing clickjacking.
+     - `X-Content-Type-Options: nosniff` preventing MIME confusion.
+     - `Referrer-Policy: strict-origin-when-cross-origin` preventing referrer leakage.
+     - `Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()`.
+     - `Cache-Control: no-store, no-cache, must-revalidate, private` and `Pragma: no-cache` preventing proxy or browser caching of sensitive responses.
+     - `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` when running in secure/production mode.
+2. **Multi-Tier Token Bucket Rate Limiting:**
+   - Enforce per-client-IP token bucket rate limiting in `middleware.RateLimiter`:
+     - Auth endpoints (`/api/v1/auth/login`, `/api/v1/auth/register`): 15 req/min.
+     - Device enrollment endpoints (`/api/v1/device-enrollments`): 30 req/min.
+     - Standard API endpoints: 200 req/min.
+   - When exceeded, returns HTTP 429 Too Many Requests with `Retry-After: 60` and standard RFC 7807 problem details.
+   - Health endpoints (`/health/live`, `/health/ready`) explicitly bypass rate limits.
+3. **Data Deletion & Retention Lifecycles:**
+   - Account Deletion (`DELETE /api/v1/auth/account`): Authenticated account with active device can permanently purge account and cascade deletion of all devices, sessions, vaults, objects, attachments, and backups.
+   - Tombstone Retention Window: Soft-deleted sync records are retained as deletion tombstones for 30 days to ensure occasionally-connected offline devices sync deletions before records are permanently purged via `PurgeExpiredTombstones`.
+   - Soft-Deleted Vaults: Vaults are soft-deleted for 30 days before permanent deletion via `PurgeSoftDeletedVaults`.
+   - External Backups Disclosure: Documented clearly that external offline `.pdvbackup` packages remain outside server custody and are not retroactively modified upon server deletion.
+4. **Web Client CSP & Supply Chain Audit:**
+   - `apps/vault-web` enforces strict CSP meta tags (`default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; object-src 'none';`).
+   - `pnpm audit --prod` clean with zero known production vulnerabilities.
+   - Formal release documentation published: `THREAT_MODEL.md`, `SECURITY_REVIEW.md`, `PRODUCTION_DEPLOYMENT.md`, `USER_SECURITY_LIMITATIONS.md`, and `RELEASE_CHECKLIST.md`.<br>
+     **Reason:** Fulfills Section 14, Section 21, and Phase 12 acceptance criteria of the Master Build Spec. Completes the 12-phase roadmap, establishing a verified release candidate baseline.

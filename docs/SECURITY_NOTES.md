@@ -58,6 +58,13 @@
 - **Volatile Session Zeroization:** Cryptographic keys and decrypted credential models are held in volatile service worker memory only. Locking the vault clears memory and zeroes cached references.
 - **Zero Credential Logging:** Console output across all extension contexts is strictly sanitized to prevent leakage of master passwords, recovery keys, or credentials into developer tools or log capture.
 
+## Production hardening & release candidate boundaries (Phase 12)
+
+- **API Non-Rendering CSP:** The Go API strictly serves JSON/binary payloads with `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none';`, completely forbidding browser framing or script evaluation.
+- **Multi-Tier Rate Limiting:** All API requests are throttled per client IP using in-memory token buckets (auth routes: 15/min, enrollment: 30/min, standard API: 200/min) returning 429 Too Many Requests to prevent brute-force attacks.
+- **Data Deletion Lifecycles:** Deleting an account purges all server-stored encrypted vaults, key envelopes, objects, attachments, and active sessions. Deletion tombstones are retained for 30 days before purge to ensure stale offline clients synchronize deletions.
+- **External Backup Copies Disclosure:** Deleting data on the server or local device cannot retroactively erase previously exported `.pdvbackup` packages.
+
 ## Rules for upcoming work
 
 - Plaintext vault data and encryption keys remain client-side. Never put keys in environment variables.

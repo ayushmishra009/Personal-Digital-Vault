@@ -285,3 +285,32 @@ func LogoutHandler(repo database.Repository, isSecure bool) http.HandlerFunc {
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
+
+func DeleteAccountHandler(repo database.Repository, isSecure bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		account, ok := domain.AccountFromContext(r.Context())
+		if !ok || account == nil {
+			WriteProblem(w, http.StatusUnauthorized, "Unauthorized", "Authentication required")
+			return
+		}
+
+		cookie, err := r.Cookie(auth.SessionCookieName)
+		if err == nil && cookie.Value != "" {
+			tokenHash := auth.HashSessionToken(cookie.Value)
+			_ = repo.RevokeSession(r.Context(), tokenHash)
+		}
+
+		if err := repo.DeleteAccount(r.Context(), account.ID); err != nil {
+			if errors.Is(err, database.ErrNotFound) {
+				WriteProblem(w, http.StatusNotFound, "Not Found", "Account not found")
+				return
+			}
+			WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "Failed to delete account")
+			return
+		}
+
+		auth.ClearSessionCookie(w, isSecure)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+

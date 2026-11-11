@@ -261,6 +261,23 @@ All Phase 6 verification targets pass in `apps/api/internal/router` (`TestCmsEnd
   - Renders locked view with master password input, unlock button, and demo vault seed option.
   - Total 18 Vitest tests passing in `apps/extension`.
 
+## Phase 12 production hardening & release candidate verification targets
+
+- Verify API security headers (`apps/api/internal/middleware/security_test.go`):
+  - Insecure mode: Asserts `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none';`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`, and `Cache-Control: no-store`.
+  - Secure mode: Asserts `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`.
+- Verify multi-tier rate limiting (`apps/api/internal/middleware/ratelimit_test.go`):
+  - Token bucket limits enforced per client IP.
+  - Auth route requests exceeding limit receive HTTP 429 Too Many Requests with `Retry-After: 60` and standard `ApiProblem` format.
+  - Health checks (`/health/live`) bypass rate limiting.
+- Verify account deletion and retention lifecycles (`apps/api/internal/router/router_test.go`):
+  - `DELETE /api/v1/auth/account`: Authenticated account with active device invokes account deletion, receives 204 No Content, and has session cookie cleared.
+  - Subsequent requests with previous session receive 401 Unauthorized.
+  - `PurgeExpiredTombstones`: Purges soft-deleted sync events older than retention cutoff (30 days) while retaining active events.
+  - `PurgeSoftDeletedVaults`: Hard-deletes soft-deleted vaults older than 30 days while retaining active vaults.
+- Verify production dependency audit:
+  - `pnpm audit --prod`: Confirmed 0 vulnerabilities.
+
 ## Later security and product coverage
 
 Follow the master specification's crypto known-answer and negative tests, backend authorization/tenant isolation tests, offline/conflict tests, CMS schema/revision tests, attachment ciphertext checks, extension origin-boundary tests, and end-to-end flows. Round-trip crypto tests alone are insufficient. Do not use production data in tests.

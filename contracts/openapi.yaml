@@ -148,6 +148,21 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/auth/account:
+    delete:
+      tags: [Authentication]
+      operationId: deleteAccount
+      summary: Permanently delete account and all associated data
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Account permanently deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/devices:
     get:
       tags: [Devices]

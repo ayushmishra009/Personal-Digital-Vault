@@ -10,6 +10,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/personal-digital-vault/api/internal/database"
+	"github.com/personal-digital-vault/api/internal/middleware"
 	"github.com/personal-digital-vault/api/internal/router"
 )
 
@@ -34,11 +35,15 @@ func main() {
 	repo := database.NewPostgresRepository(db)
 	isSecure := cfg.appEnv == "production"
 
+	rl := middleware.NewRateLimiter(middleware.DefaultRateLimiterConfig())
+	defer rl.Stop()
+
 	handler := router.BuildRouter(router.Config{
 		Repo:           repo,
 		DB:             db,
 		IsSecure:       isSecure,
 		AllowedOrigins: cfg.allowedOrigins,
+		RateLimiter:    rl,
 	})
 
 	server := &http.Server{

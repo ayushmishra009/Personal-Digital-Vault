@@ -1481,4 +1481,108 @@ func (m *MockRepository) ListBackupMetadata(
 	return res, nil
 }
 
+func (m *MockRepository) DeleteAccount(ctx context.Context, accountID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.accounts[accountID]; !exists {
+		return ErrNotFound
+	}
+
+	delete(m.accounts, accountID)
+
+	for k, d := range m.devices {
+		if d.AccountID == accountID {
+			delete(m.devices, k)
+		}
+	}
+	for k, s := range m.sessions {
+		if s.AccountID == accountID {
+			delete(m.sessions, k)
+		}
+	}
+	for k, v := range m.vaults {
+		if v.AccountID == accountID {
+			delete(m.vaults, k)
+		}
+	}
+	for k := range m.vaultEnvelopes {
+		if strings.HasPrefix(k, accountID+":") {
+			delete(m.vaultEnvelopes, k)
+		}
+	}
+	for k := range m.syncEvents {
+		if strings.HasPrefix(k, accountID+":") {
+			delete(m.syncEvents, k)
+		}
+	}
+	for k := range m.syncOps {
+		if strings.HasPrefix(k, accountID+":") {
+			delete(m.syncOps, k)
+		}
+	}
+	for k := range m.objects {
+		if strings.HasPrefix(k, accountID+":") {
+			delete(m.objects, k)
+		}
+	}
+	for k := range m.attachments {
+		if strings.HasPrefix(k, accountID+":") {
+			delete(m.attachments, k)
+		}
+	}
+	for k := range m.attachmentBlobs {
+		if strings.HasPrefix(k, accountID+":") {
+			delete(m.attachmentBlobs, k)
+		}
+	}
+	for k := range m.backups {
+		if strings.HasPrefix(k, accountID+":") {
+			delete(m.backups, k)
+		}
+	}
+
+	return nil
+}
+
+func (m *MockRepository) PurgeExpiredTombstones(ctx context.Context, olderThan time.Duration) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cutoff := time.Now().Add(-olderThan)
+	var purged int64
+
+	for key, events := range m.syncEvents {
+		var retained []domain.SyncEvent
+		for _, ev := range events {
+			if ev.OperationKind == "delete" && ev.CreatedAt.Before(cutoff) {
+				purged++
+			} else {
+				retained = append(retained, ev)
+			}
+		}
+		m.syncEvents[key] = retained
+	}
+
+	return purged, nil
+}
+
+func (m *MockRepository) PurgeSoftDeletedVaults(ctx context.Context, olderThan time.Duration) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cutoff := time.Now().Add(-olderThan)
+	var purged int64
+
+	for key, v := range m.vaults {
+		if v.Status == "deleted" && v.UpdatedAt.Before(cutoff) {
+			delete(m.vaults, key)
+			purged++
+		}
+	}
+
+	return purged, nil
+}
+
+
 

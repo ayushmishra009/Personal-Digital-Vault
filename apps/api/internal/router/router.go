@@ -16,6 +16,7 @@ type Config struct {
 	DB             *sql.DB
 	IsSecure       bool
 	AllowedOrigins []string
+	RateLimiter    *middleware.RateLimiter
 }
 
 func BuildRouter(cfg Config) http.Handler {
@@ -52,6 +53,7 @@ func BuildRouter(cfg Config) http.Handler {
 
 	// Protected routes (strictly require an active device)
 	requireActiveSession := middleware.RequireSession(cfg.Repo, true)
+	mux.Handle("DELETE /api/v1/auth/account", requireActiveSession(handlers.DeleteAccountHandler(cfg.Repo, cfg.IsSecure)))
 	mux.Handle("GET /api/v1/devices", requireActiveSession(handlers.ListDevicesHandler(cfg.Repo)))
 	mux.Handle("POST /api/v1/device-enrollments/{enrollmentId}/approve", requireActiveSession(handlers.ApproveDeviceEnrollmentHandler(cfg.Repo)))
 	mux.Handle("POST /api/v1/devices/{deviceId}/revoke", requireActiveSession(handlers.RevokeDeviceHandler(cfg.Repo)))
@@ -100,5 +102,10 @@ func BuildRouter(cfg Config) http.Handler {
 	mux.Handle("GET /api/v1/admin/cms/revisions", requireActiveSession(http.HandlerFunc(cmsH.ListRevisions)))
 	mux.Handle("POST /api/v1/admin/cms/revisions/{revisionNumber}/restore", requireActiveSession(http.HandlerFunc(cmsH.RestoreRevision)))
 
-	return middleware.Cors(cfg.AllowedOrigins)(mux)
+	var handler http.Handler = mux
+	if cfg.RateLimiter != nil {
+		handler = cfg.RateLimiter.Middleware()(handler)
+	}
+	handler = middleware.SecurityHeaders(cfg.IsSecure)(handler)
+	return middleware.Cors(cfg.AllowedOrigins)(handler)
 }
