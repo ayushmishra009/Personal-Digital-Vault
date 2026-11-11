@@ -2,7 +2,7 @@
   "name": "@pdv/api",
   "private": true,
   "scripts": {
-    "dev": "dotenv -e ../../.env -- go run ./cmd/api",
+    "dev": "dotenv -e ../../.env -- nodemon",
     "build": "go build -o bin/pdv-api.exe ./cmd/api",
     "lint": "go vet ./...",
     "typecheck": "go build -mod=vendor ./...",

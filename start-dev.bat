@@ -132,3 +132,4 @@ start "" cmd /c "ping 127.0.0.1 -n 4 >nul & start http://localhost:5173"
 
 :: Run turbo dev in parallel (keeps running in this terminal)
 call pnpm dev
+pause

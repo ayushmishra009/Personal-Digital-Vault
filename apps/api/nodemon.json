@@ -1,0 +1,5 @@
+{
+  "watch": ["cmd", "internal"],
+  "ext": "go",
+  "exec": "go run ./cmd/api"
+}
