@@ -84,6 +84,8 @@ export async function registerAccount(params: {
   publicKey: string;
   credentialType: "webauthn" | "external";
   credentialId: string;
+  credentialPublicKey?: string;
+  externalSubject?: string;
 }): Promise<AccountSession> {
   const res = await fetch("/api/v1/auth/register", {
     method: "POST",

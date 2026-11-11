@@ -154,6 +154,7 @@ export function App() {
         publicKey: fakePub,
         credentialType: "external",
         credentialId: `cred-${Date.now()}`,
+        externalSubject: authEmail,
       });
       setSession(s);
       showAlert("success", `Registered as ${s.account.email}`);

@@ -112,6 +112,16 @@ func TestAccountRegistrationAndLoginFlow(t *testing.T) {
 		t.Errorf("expected 422 for invalid email, got %d", recInvalid.Code)
 	}
 
+	// 3b. WebAuthn without credential public key fails validation
+	webauthnReq := regReq
+	webauthnReq.Email = "webauthn-user@example.com"
+	webauthnReq.CredentialType = "webauthn"
+	webauthnReq.CredentialPublicKey = ""
+	recWebauthnInvalid := doRequest(h, "POST", "/api/v1/auth/register", webauthnReq, nil)
+	if recWebauthnInvalid.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for webauthn without credential public key, got %d", recWebauthnInvalid.Code)
+	}
+
 	// 4. Get current session
 	recSession := doRequest(h, "GET", "/api/v1/auth/session", nil, sessionCookie)
 	if recSession.Code != http.StatusOK {

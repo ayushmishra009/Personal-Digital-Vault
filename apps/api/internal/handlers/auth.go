@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -134,9 +135,19 @@ func RegisterHandler(repo database.Repository, isSecure bool) http.HandlerFunc {
 			}
 		}
 
+		if req.CredentialType == "webauthn" && len(credPubKeyBytes) == 0 {
+			WriteProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity", "Credential public key is required for webauthn credentials")
+			return
+		}
+
 		var externalSub *string
 		if req.ExternalSubject != "" {
 			s := req.ExternalSubject
+			externalSub = &s
+		} else if req.CredentialType == "external" {
+			// If not provided for external credentials, default to the unique credential ID
+			// so external_subject satisfies the NOT NULL database constraint.
+			s := req.CredentialID
 			externalSub = &s
 		}
 
@@ -159,6 +170,7 @@ func RegisterHandler(repo database.Repository, isSecure bool) http.HandlerFunc {
 
 		createdAccount, createdDevice, err := repo.CreateAccountWithDeviceAndCredential(r.Context(), account, device, cred)
 		if err != nil {
+			log.Printf("[RegisterHandler] Failed to create account for %s: %v", req.Email, err)
 			if errors.Is(err, database.ErrConflict) {
 				WriteProblem(w, http.StatusConflict, "Conflict", "Account or credential already exists")
 				return
@@ -181,6 +193,7 @@ func RegisterHandler(repo database.Repository, isSecure bool) http.HandlerFunc {
 			ExpiresAt: expiresAt,
 		}
 		if err := repo.CreateSession(r.Context(), session); err != nil {
+			log.Printf("[RegisterHandler] Failed to establish session for %s: %v", req.Email, err)
 			WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "Failed to establish session")
 			return
 		}
@@ -241,6 +254,7 @@ func LoginHandler(repo database.Repository, isSecure bool) http.HandlerFunc {
 			ExpiresAt: expiresAt,
 		}
 		if err := repo.CreateSession(r.Context(), session); err != nil {
+			log.Printf("[LoginHandler] Failed to establish session for %s: %v", account.Email, err)
 			WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "Failed to establish session")
 			return
 		}

@@ -130,10 +130,16 @@ export function App() {
 
   // Auth form state
   const [authTab, setAuthTab] = useState<"login" | "register">("register");
-  const [authEmail, setAuthEmail] = useState("");
+  const [authEmail, setAuthEmail] = useState(
+    () => localStorage.getItem("pdv_last_email") || "",
+  );
   const [authDeviceLabel, setAuthDeviceLabel] = useState("My Browser");
-  const [authDeviceId, setAuthDeviceId] = useState("");
-  const [authCredentialId, setAuthCredentialId] = useState("");
+  const [authDeviceId, setAuthDeviceId] = useState(
+    () => localStorage.getItem("pdv_last_device_id") || "",
+  );
+  const [authCredentialId, setAuthCredentialId] = useState(
+    () => localStorage.getItem("pdv_last_credential_id") || "",
+  );
 
   const [, startTransition] = useTransition();
   const recordRepo = useMemo(() => new EncryptedRecordRepository(), []);
@@ -227,8 +233,9 @@ export function App() {
     try {
       const generatedPubKey = randomBase64Url(32);
       const generatedCredId = authCredentialId.trim() || `cred-${Date.now()}`;
+      const email = authEmail.trim();
       const s = await registerAccount({
-        email: authEmail.trim(),
+        email,
         deviceLabel: authDeviceLabel.trim() || "Web Browser",
         platform: navigator.platform || "Web",
         browser: "Chrome / Modern Browser",
@@ -236,7 +243,13 @@ export function App() {
         publicKey: generatedPubKey,
         credentialType: "external",
         credentialId: generatedCredId,
+        externalSubject: email,
       });
+      localStorage.setItem("pdv_last_email", email);
+      localStorage.setItem("pdv_last_credential_id", generatedCredId);
+      if (s.device?.id) {
+        localStorage.setItem("pdv_last_device_id", s.device.id);
+      }
       startTransition(() => {
         setSession(s);
         if (s.device?.id) setAuthDeviceId(s.device.id);
@@ -260,12 +273,18 @@ export function App() {
     e.preventDefault();
     setError(null);
     try {
+      const email = authEmail.trim();
+      const devId = authDeviceId.trim();
+      const credId = authCredentialId.trim();
       const s = await loginAccount({
-        email: authEmail.trim(),
-        deviceId: authDeviceId.trim(),
+        email,
+        deviceId: devId,
         credentialType: "external",
-        credentialId: authCredentialId.trim(),
+        credentialId: credId,
       });
+      localStorage.setItem("pdv_last_email", email);
+      localStorage.setItem("pdv_last_device_id", devId);
+      localStorage.setItem("pdv_last_credential_id", credId);
       startTransition(() => {
         setSession(s);
       });
