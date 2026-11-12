@@ -16,7 +16,11 @@ import {
   extractHostname,
   isAllowedOrigin,
 } from "./utils/origin";
-import type { ExtensionStatus, CredentialSummary, CapturedCredential } from "./types";
+import type {
+  ExtensionStatus,
+  CredentialSummary,
+  CapturedCredential,
+} from "./types";
 import type { PasswordRecord } from "@pdv/data-models";
 
 export interface StoredVaultData {

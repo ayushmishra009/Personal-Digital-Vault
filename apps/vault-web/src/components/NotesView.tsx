@@ -129,7 +129,13 @@ export const NotesView: React.FC<NotesViewProps> = ({
                   <h3 style={{ margin: "0 0 0.25rem", fontSize: "1.3rem" }}>
                     {selectedNote.title}
                   </h3>
-                  <div style={{ fontSize: "0.8rem", color: "var(--xai-mute, #7d8187)", fontFamily: "var(--font-mono)" }}>
+                  <div
+                    style={{
+                      fontSize: "0.8rem",
+                      color: "var(--xai-mute, #7d8187)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
                     Last updated:{" "}
                     {new Date(selectedNote.updatedAt).toLocaleString()} •{" "}
                     {selectedNote.content.split(/\s+/).filter(Boolean).length}{" "}

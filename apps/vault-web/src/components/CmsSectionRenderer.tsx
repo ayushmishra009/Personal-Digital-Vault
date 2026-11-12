@@ -56,7 +56,13 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
               <h2 style={{ margin: "0 0 0.25rem", fontSize: "1.3rem" }}>
                 {greeting}
               </h2>
-              <p style={{ margin: 0, color: "var(--xai-mute, #7d8187)", fontSize: "0.9rem" }}>
+              <p
+                style={{
+                  margin: 0,
+                  color: "var(--xai-mute, #7d8187)",
+                  fontSize: "0.9rem",
+                }}
+              >
                 {subtitle}
               </p>
             </div>
@@ -243,7 +249,13 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
           <h3 style={{ margin: "0 0 0.5rem", fontSize: "1.1rem" }}>
             {section.title || "Recent Activity"}
           </h3>
-          <p style={{ margin: 0, color: "var(--xai-mute, #7d8187)", fontSize: "0.88rem" }}>
+          <p
+            style={{
+              margin: 0,
+              color: "var(--xai-mute, #7d8187)",
+              fontSize: "0.88rem",
+            }}
+          >
             Local records are encrypted with AES-256-GCM. Unlocked records
             appear in the vault inventory below.
           </p>
@@ -276,7 +288,13 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
                     textAlign: "center",
                   }}
                 >
-                  <div style={{ fontWeight: 400, fontSize: "0.9rem", color: "var(--xai-ink, #ffffff)" }}>
+                  <div
+                    style={{
+                      fontWeight: 400,
+                      fontSize: "0.9rem",
+                      color: "var(--xai-ink, #ffffff)",
+                    }}
+                  >
                     {cat}
                   </div>
                   <div
@@ -317,7 +335,13 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
             {section.title}
           </h4>
           {text && (
-            <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--xai-body, #dadbdf)" }}>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.88rem",
+                color: "var(--xai-body, #dadbdf)",
+              }}
+            >
               {text}
             </p>
           )}
@@ -347,7 +371,13 @@ export const CmsSectionRenderer: React.FC<CmsSectionRendererProps> = ({
           >
             💡 {section.title || "Security Tips"}
           </h4>
-          <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--xai-body, #dadbdf)" }}>
+          <p
+            style={{
+              margin: 0,
+              fontSize: "0.85rem",
+              color: "var(--xai-body, #dadbdf)",
+            }}
+          >
             {helpText}
           </p>
         </div>

@@ -59,7 +59,12 @@ export const IdentitiesView: React.FC<IdentitiesViewProps> = ({
                       {record.title}
                     </h3>
                     {fullName && (
-                      <div style={{ fontSize: "0.85rem", color: "var(--xai-mute, #7d8187)" }}>
+                      <div
+                        style={{
+                          fontSize: "0.85rem",
+                          color: "var(--xai-mute, #7d8187)",
+                        }}
+                      >
                         {fullName}
                       </div>
                     )}

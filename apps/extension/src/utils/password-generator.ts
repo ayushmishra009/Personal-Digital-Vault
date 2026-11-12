@@ -106,6 +106,7 @@ export function estimatePasswordStrength(password: string): PasswordStrength {
   if (entropyBits < 40) return { entropyBits, label: "Weak", color: "#ef4444" };
   if (entropyBits < 60) return { entropyBits, label: "Fair", color: "#f59e0b" };
   if (entropyBits < 80) return { entropyBits, label: "Good", color: "#eab308" };
-  if (entropyBits < 100) return { entropyBits, label: "Strong", color: "#10b981" };
+  if (entropyBits < 100)
+    return { entropyBits, label: "Strong", color: "#10b981" };
   return { entropyBits, label: "Very Strong", color: "#06b6d4" };
 }

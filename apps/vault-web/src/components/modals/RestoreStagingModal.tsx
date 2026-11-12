@@ -283,9 +283,7 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
                 padding: "0.75rem 1rem",
               }}
             >
-              <strong>
-                ⚠️ Restore Conflict Safeguard:
-              </strong>
+              <strong>⚠️ Restore Conflict Safeguard:</strong>
               <p
                 style={{
                   margin: "0.25rem 0 0.5rem",
@@ -330,7 +328,10 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
           >
             <thead>
               <tr
-                style={{ borderBottom: "1px solid var(--xai-hairline, #212327)", textAlign: "left" }}
+                style={{
+                  borderBottom: "1px solid var(--xai-hairline, #212327)",
+                  textAlign: "left",
+                }}
               >
                 <th style={{ padding: "0.5rem" }}>
                   <input
@@ -369,11 +370,29 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
                   <td style={{ padding: "0.5rem", fontWeight: 400 }}>
                     {item.title}
                   </td>
-                  <td style={{ padding: "0.5rem", color: "var(--xai-mute, #7d8187)" }}>
+                  <td
+                    style={{
+                      padding: "0.5rem",
+                      color: "var(--xai-mute, #7d8187)",
+                    }}
+                  >
                     {item.type}
                   </td>
-                  <td style={{ padding: "0.5rem", fontFamily: "var(--font-mono)" }}>v{item.backupRevision}</td>
-                  <td style={{ padding: "0.5rem", color: "var(--xai-mute, #7d8187)", fontFamily: "var(--font-mono)" }}>
+                  <td
+                    style={{
+                      padding: "0.5rem",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    v{item.backupRevision}
+                  </td>
+                  <td
+                    style={{
+                      padding: "0.5rem",
+                      color: "var(--xai-mute, #7d8187)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
                     {item.localRevision !== undefined
                       ? `v${item.localRevision}`
                       : "—"}
@@ -410,7 +429,13 @@ export const RestoreStagingModal: React.FC<RestoreStagingModalProps> = ({
             marginTop: "1.25rem",
           }}
         >
-          <div style={{ fontSize: "0.82rem", color: "var(--xai-mute, #7d8187)", fontFamily: "var(--font-mono)" }}>
+          <div
+            style={{
+              fontSize: "0.82rem",
+              color: "var(--xai-mute, #7d8187)",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
             {selectedIds.size} of {plan.items.length} record(s) selected
           </div>
           <div style={{ display: "flex", gap: "0.5rem" }}>

@@ -59,8 +59,14 @@ export default defineContentScript({
     function isPasswordField(el: Element | null): el is HTMLInputElement {
       if (!el || el.tagName !== "INPUT") return false;
       const input = el as HTMLInputElement;
-      const type = (input.getAttribute("type") || input.type || "").toLowerCase();
-      const autocomplete = (input.getAttribute("autocomplete") || "").toLowerCase();
+      const type = (
+        input.getAttribute("type") ||
+        input.type ||
+        ""
+      ).toLowerCase();
+      const autocomplete = (
+        input.getAttribute("autocomplete") || ""
+      ).toLowerCase();
       const name = (input.name || "").toLowerCase();
       const id = (input.id || "").toLowerCase();
 
@@ -76,7 +82,10 @@ export default defineContentScript({
     }
 
     // 2. Inline Suggestion Button
-    function createInlineButtonHost(): { host: HTMLElement; shadow: ShadowRoot } {
+    function createInlineButtonHost(): {
+      host: HTMLElement;
+      shadow: ShadowRoot;
+    } {
       if (inlineButtonHost && inlineButtonHost.parentNode) {
         return { host: inlineButtonHost, shadow: inlineButtonHost.shadowRoot! };
       }
@@ -212,7 +221,10 @@ export default defineContentScript({
               }
 
               // 4. Extract username and stage credentials for auto-save
-              const captured = captureCredentialsFromDocument(document, target.form);
+              const captured = captureCredentialsFromDocument(
+                document,
+                target.form,
+              );
               const cred: CapturedCredential = {
                 username: captured?.username || "",
                 password,
@@ -276,7 +288,10 @@ export default defineContentScript({
           positionInlinePill(currentFocusedInput);
         }
       };
-      window.addEventListener("scroll", updatePos, { passive: true, capture: true });
+      window.addEventListener("scroll", updatePos, {
+        passive: true,
+        capture: true,
+      });
       window.addEventListener("resize", updatePos, { passive: true });
     }
 
@@ -490,10 +505,13 @@ export default defineContentScript({
       document.body.appendChild(host);
       activePromptHost = host;
 
-      const dismissBtn = shadow.querySelector<HTMLButtonElement>(".pdv-btn-dismiss");
+      const dismissBtn =
+        shadow.querySelector<HTMLButtonElement>(".pdv-btn-dismiss");
       const saveBtn = shadow.querySelector<HTMLButtonElement>(".pdv-btn-save");
-      const usernameInput = shadow.querySelector<HTMLInputElement>(".pdv-username");
-      const passwordInput = shadow.querySelector<HTMLInputElement>(".pdv-password");
+      const usernameInput =
+        shadow.querySelector<HTMLInputElement>(".pdv-username");
+      const passwordInput =
+        shadow.querySelector<HTMLInputElement>(".pdv-password");
       const statusEl = shadow.querySelector<HTMLDivElement>(".pdv-status");
 
       dismissBtn?.addEventListener("click", () => {
@@ -521,7 +539,8 @@ export default defineContentScript({
             if (statusEl) {
               statusEl.style.display = "block";
               statusEl.style.color = "#10b981";
-              statusEl.textContent = "Securely encrypted & saved to your vault.";
+              statusEl.textContent =
+                "Securely encrypted & saved to your vault.";
             }
             setTimeout(() => {
               if (host.parentNode) host.parentNode.removeChild(host);

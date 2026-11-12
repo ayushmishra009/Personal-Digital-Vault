@@ -178,7 +178,12 @@ export const RecoveryView: React.FC<RecoveryViewProps> = ({
               </div>
             </div>
 
-            <div style={{ borderTop: "1px solid var(--xai-hairline, #212327)", paddingTop: "1rem" }}>
+            <div
+              style={{
+                borderTop: "1px solid var(--xai-hairline, #212327)",
+                paddingTop: "1rem",
+              }}
+            >
               <label
                 className="btn-secondary"
                 style={{

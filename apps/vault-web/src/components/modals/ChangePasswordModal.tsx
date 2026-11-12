@@ -72,7 +72,11 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
         {error && <div className="alert alert-danger">{error}</div>}
 
         <p
-          style={{ fontSize: "0.85rem", color: "var(--xai-mute, #7d8187)", margin: "0 0 1rem" }}
+          style={{
+            fontSize: "0.85rem",
+            color: "var(--xai-mute, #7d8187)",
+            margin: "0 0 1rem",
+          }}
         >
           Rewraps your existing Vault Encryption Key with fresh salt using
           proposed Argon2id parameters. Your encrypted records and recovery

@@ -25,9 +25,15 @@
   --xai-accent-twilight: #c4b5fd;
   --xai-accent-breeze: #a0c3ec;
 
-  --font-display: "Universal Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-body: "Universal Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "Geist Mono", "GeistMono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-display:
+    "Universal Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+  --font-body:
+    "Universal Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+  --font-mono:
+    "Geist Mono", "GeistMono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, monospace;
 
   --radius-none: 0px;
   --radius-sm: 8px;
@@ -61,7 +67,12 @@ body {
   font-weight: 400;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: var(--font-display);
   font-weight: 400;
   color: var(--xai-ink);

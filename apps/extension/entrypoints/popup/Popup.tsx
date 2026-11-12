@@ -502,8 +502,8 @@ export const Popup: React.FC<{ initialStatus?: ExtensionStatus }> = ({
           <div className="pending-capture-card">
             <div className="pending-capture-header">
               <span className="pending-capture-title">
-                ✨ Save login for {extractHostname(pendingCapture.url) || "page"}
-                ?
+                ✨ Save login for{" "}
+                {extractHostname(pendingCapture.url) || "page"}?
               </span>
             </div>
             <div className="pending-capture-details">
@@ -779,9 +779,7 @@ export const Popup: React.FC<{ initialStatus?: ExtensionStatus }> = ({
           <div>
             {showAddForm ? (
               <form onSubmit={handleSaveNewCredential} className="add-form">
-                <h3
-                  style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}
-                >
+                <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
                   Add Login to Vault
                 </h3>
                 <div className="form-group">

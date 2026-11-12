@@ -79,7 +79,10 @@ export const DevicesView: React.FC<DevicesViewProps> = ({
       {pendingDevices.length > 0 && (
         <div
           className="card"
-          style={{ borderLeft: "2px solid var(--xai-accent-sunset, #ff7a17)", marginBottom: "1.5rem" }}
+          style={{
+            borderLeft: "2px solid var(--xai-accent-sunset, #ff7a17)",
+            marginBottom: "1.5rem",
+          }}
         >
           <h3
             style={{
@@ -116,7 +119,13 @@ export const DevicesView: React.FC<DevicesViewProps> = ({
                   <tr key={d.id}>
                     <td>
                       <strong>{d.label}</strong>
-                      <div style={{ fontSize: "0.75rem", color: "var(--xai-mute, #7d8187)", fontFamily: "var(--font-mono)" }}>
+                      <div
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "var(--xai-mute, #7d8187)",
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
                         {d.id}
                       </div>
                     </td>
@@ -175,7 +184,13 @@ export const DevicesView: React.FC<DevicesViewProps> = ({
                         Current Device
                       </span>
                     )}
-                    <div style={{ fontSize: "0.75rem", color: "var(--xai-mute, #7d8187)", fontFamily: "var(--font-mono)" }}>
+                    <div
+                      style={{
+                        fontSize: "0.75rem",
+                        color: "var(--xai-mute, #7d8187)",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
                       {d.id}
                     </div>
                   </td>
@@ -235,7 +250,12 @@ export const DevicesView: React.FC<DevicesViewProps> = ({
 
             {latestChallenge ? (
               <div>
-                <p style={{ fontSize: "0.9rem", color: "var(--xai-mute, #7d8187)" }}>
+                <p
+                  style={{
+                    fontSize: "0.9rem",
+                    color: "var(--xai-mute, #7d8187)",
+                  }}
+                >
                   A pairing challenge was created. Enter this challenge and
                   Enrollment ID on the new device:
                 </p>

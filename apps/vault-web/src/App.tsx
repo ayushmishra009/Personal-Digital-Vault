@@ -179,8 +179,8 @@ export function App() {
   // Auth form state & detection
   const hasStoredDevice = Boolean(
     typeof window !== "undefined" &&
-      localStorage.getItem("pdv_last_device_id") &&
-      localStorage.getItem("pdv_last_email"),
+    localStorage.getItem("pdv_last_device_id") &&
+    localStorage.getItem("pdv_last_email"),
   );
   const storedDeviceLabel =
     (typeof window !== "undefined" &&
@@ -364,7 +364,9 @@ export function App() {
       setSession(s);
 
       // 2. Automatically create & unlock initial primary vault with master password
-      setAuthStatusMessage("Deriving Argon2id keys & securing your primary vault...");
+      setAuthStatusMessage(
+        "Deriving Argon2id keys & securing your primary vault...",
+      );
       const recoverySecret = await handleCreateVault(registerPassword);
 
       // 3. Load configuration and devices
@@ -819,13 +821,22 @@ export function App() {
   if (onboardingSecret) {
     return (
       <div style={{ maxWidth: 560, margin: "6vh auto", padding: "1.5rem" }}>
-        <div className="card" style={{ borderTop: "2px solid var(--xai-primary, #ffffff)" }}>
+        <div
+          className="card"
+          style={{ borderTop: "2px solid var(--xai-primary, #ffffff)" }}
+        >
           <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
             <span style={{ fontSize: "2.5rem" }}>🎉</span>
             <h1 style={{ fontSize: "1.6rem", margin: "0.5rem 0 0.25rem" }}>
               Welcome to Your Vault!
             </h1>
-            <p style={{ color: "var(--xai-mute, #7d8187)", fontSize: "0.9rem", margin: 0 }}>
+            <p
+              style={{
+                color: "var(--xai-mute, #7d8187)",
+                fontSize: "0.9rem",
+                margin: 0,
+              }}
+            >
               Your account, primary vault, and encryption keys are ready.
             </p>
           </div>
@@ -840,7 +851,10 @@ export function App() {
           </div>
 
           <div style={{ marginBottom: "1rem" }}>
-            <span className="caption-mono" style={{ display: "block", marginBottom: "0.4rem" }}>
+            <span
+              className="caption-mono"
+              style={{ display: "block", marginBottom: "0.4rem" }}
+            >
               Your 256-Bit Recovery Secret
             </span>
             <div
@@ -935,7 +949,13 @@ export function App() {
             <h1 style={{ fontSize: "1.75rem", margin: "0.5rem 0 0.25rem" }}>
               Personal Digital Vault
             </h1>
-            <p style={{ color: "var(--xai-mute, #7d8187)", fontSize: "0.85rem", margin: 0 }}>
+            <p
+              style={{
+                color: "var(--xai-mute, #7d8187)",
+                fontSize: "0.85rem",
+                margin: 0,
+              }}
+            >
               Zero-Knowledge End-to-End Encrypted Storage
             </p>
           </div>
@@ -1115,7 +1135,9 @@ export function App() {
             </form>
           ) : hasStoredDevice && !useManualCredentials ? (
             <div>
-              <div style={{ textAlign: "center", padding: "0.75rem 0 1.25rem" }}>
+              <div
+                style={{ textAlign: "center", padding: "0.75rem 0 1.25rem" }}
+              >
                 <div style={{ fontSize: "2.2rem", marginBottom: "0.25rem" }}>
                   👋
                 </div>
@@ -1157,7 +1179,9 @@ export function App() {
                 onClick={() => handleLogin()}
                 disabled={isSubmittingAuth}
               >
-                {isSubmittingAuth ? "Signing In..." : "Sign In with This Device"}
+                {isSubmittingAuth
+                  ? "Signing In..."
+                  : "Sign In with This Device"}
               </button>
 
               <div
@@ -1333,7 +1357,14 @@ export function App() {
                   >
                     ← Back to Saved Device
                   </button>
-                  <span style={{ margin: "0 0.5rem", color: "var(--xai-hairline, #212327)" }}>•</span>
+                  <span
+                    style={{
+                      margin: "0 0.5rem",
+                      color: "var(--xai-hairline, #212327)",
+                    }}
+                  >
+                    •
+                  </span>
                   <button
                     type="button"
                     style={{
@@ -1363,7 +1394,10 @@ export function App() {
       <div style={{ maxWidth: 500, margin: "10vh auto", padding: "1.5rem" }}>
         <div
           className="card"
-          style={{ borderLeft: "2px solid var(--xai-accent-sunset, #ff7a17)", textAlign: "center" }}
+          style={{
+            borderLeft: "2px solid var(--xai-accent-sunset, #ff7a17)",
+            textAlign: "center",
+          }}
         >
           <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>⏳</div>
           <h2>Device Approval Pending</h2>

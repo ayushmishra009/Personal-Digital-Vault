@@ -50,7 +50,11 @@ export const PasswordGeneratorModal: React.FC<PasswordGeneratorModalProps> = ({
         </div>
 
         <p
-          style={{ fontSize: "0.85rem", color: "var(--xai-mute, #7d8187)", margin: "0 0 1rem" }}
+          style={{
+            fontSize: "0.85rem",
+            color: "var(--xai-mute, #7d8187)",
+            margin: "0 0 1rem",
+          }}
         >
           Uses Web Crypto CSPRNG with rejection sampling to eliminate modulo
           bias.
