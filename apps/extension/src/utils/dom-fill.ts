@@ -47,8 +47,30 @@ export function fillCredentialsInDocument(
 export function fillGeneratedPasswordInDocument(
   doc: Document,
   password: string,
+  targetInput?: HTMLInputElement | null,
 ): { success: boolean; filledCount: number } {
   let filledCount = 0;
+
+  // If a specific target input was focused, fill it and its form's confirm-password fields
+  if (targetInput) {
+    setInputValue(targetInput, password);
+    filledCount++;
+
+    if (targetInput.form) {
+      const otherInputs = Array.from(
+        targetInput.form.querySelectorAll<HTMLInputElement>(
+          'input[type="password"], input[autocomplete="new-password"], input[name*="pass" i], input[id*="pass" i]',
+        ),
+      ).filter((inp) => inp !== targetInput);
+
+      for (const input of otherInputs) {
+        setInputValue(input, password);
+        filledCount++;
+      }
+    }
+    return { success: filledCount > 0, filledCount };
+  }
+
   const passwordInputs = Array.from(
     doc.querySelectorAll<HTMLInputElement>(
       'input[type="password"], input[autocomplete="new-password"]',
@@ -130,8 +152,27 @@ export function setInputValue(input: HTMLInputElement, value: string): void {
     input.value = value;
   }
 
+  // React internal valueTracker support so onChange/onInput fires properly in React 16-19
+  const tracker = (
+    input as unknown as { _valueTracker?: { setValue: (v: string) => void } }
+  )._valueTracker;
+  if (tracker) {
+    tracker.setValue(value);
+  }
+
   if (typeof Event !== "undefined") {
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    try {
+      input.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          cancelable: true,
+          inputType: "insertText",
+          data: value,
+        }),
+      );
+    } catch {
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 }

@@ -4,7 +4,9 @@ import {
   fillCredentialsInDocument,
   fillGeneratedPasswordInDocument,
   captureCredentialsFromDocument,
+  setInputValue,
 } from "../src/utils/dom-fill";
+import { generatePassword } from "../src/utils/password-generator";
 import type { CapturedCredential } from "../src/types";
 
 export default defineContentScript({
@@ -14,6 +16,8 @@ export default defineContentScript({
   main() {
     let activePromptHost: HTMLElement | null = null;
     let inlineButtonHost: HTMLElement | null = null;
+    let isHoveringPill = false;
+    let currentFocusedInput: HTMLInputElement | null = null;
 
     // 1. Listen for messages from extension background
     browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -26,7 +30,11 @@ export default defineContentScript({
 
       if (message.type === "PDV_FILL_GENERATED_PASSWORD") {
         const { password } = message.payload || {};
-        const result = fillGeneratedPasswordInDocument(document, password);
+        const result = fillGeneratedPasswordInDocument(
+          document,
+          password,
+          currentFocusedInput,
+        );
         sendResponse(result);
         return true;
       }
@@ -47,42 +55,87 @@ export default defineContentScript({
       }
     });
 
-    // 2. Inline Suggestion Button when focusing a password field
+    // Helper: detect if an element is a password/registration field
+    function isPasswordField(el: Element | null): el is HTMLInputElement {
+      if (!el || el.tagName !== "INPUT") return false;
+      const input = el as HTMLInputElement;
+      const type = (input.getAttribute("type") || input.type || "").toLowerCase();
+      const autocomplete = (input.getAttribute("autocomplete") || "").toLowerCase();
+      const name = (input.name || "").toLowerCase();
+      const id = (input.id || "").toLowerCase();
+
+      return (
+        type === "password" ||
+        autocomplete === "new-password" ||
+        autocomplete === "current-password" ||
+        name.includes("password") ||
+        name.includes("passwd") ||
+        id.includes("password") ||
+        id.includes("passwd")
+      );
+    }
+
+    // 2. Inline Suggestion Button
     function createInlineButtonHost(): { host: HTMLElement; shadow: ShadowRoot } {
       if (inlineButtonHost && inlineButtonHost.parentNode) {
         return { host: inlineButtonHost, shadow: inlineButtonHost.shadowRoot! };
       }
       const host = document.createElement("div");
       host.id = "pdv-inline-button-host";
-      host.style.position = "absolute";
-      host.style.zIndex = "2147483646";
+      host.style.position = "fixed";
+      host.style.zIndex = "2147483647";
       host.style.pointerEvents = "auto";
       const shadow = host.attachShadow({ mode: "open" });
+
+      host.addEventListener("mouseenter", () => {
+        isHoveringPill = true;
+      });
+      host.addEventListener("mouseleave", () => {
+        isHoveringPill = false;
+      });
+
       document.body.appendChild(host);
       inlineButtonHost = host;
       return { host, shadow };
     }
 
     function removeInlineButton(): void {
+      if (isHoveringPill) return;
       if (inlineButtonHost && inlineButtonHost.parentNode) {
         inlineButtonHost.parentNode.removeChild(inlineButtonHost);
         inlineButtonHost = null;
       }
     }
 
+    function positionInlinePill(target: HTMLInputElement): void {
+      if (!inlineButtonHost) return;
+      const rect = target.getBoundingClientRect();
+      if (
+        rect.width === 0 ||
+        rect.height === 0 ||
+        rect.bottom < 0 ||
+        rect.top > window.innerHeight
+      ) {
+        inlineButtonHost.style.display = "none";
+        return;
+      }
+
+      inlineButtonHost.style.display = "block";
+      let top = rect.bottom + 4;
+      if (top + 32 > window.innerHeight) {
+        top = Math.max(4, rect.top - 32);
+      }
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - 220));
+
+      inlineButtonHost.style.top = `${top}px`;
+      inlineButtonHost.style.left = `${left}px`;
+    }
+
     function attachInlinePasswordSuggester(): void {
-      document.addEventListener("focusin", (e) => {
-        const target = e.target as HTMLInputElement | null;
-        if (!target || target.type !== "password") return;
-
-        // Position pill button below password input
-        const rect = target.getBoundingClientRect();
-        const { host, shadow } = createInlineButtonHost();
-
-        const top = rect.bottom + window.scrollY + 4;
-        const left = rect.left + window.scrollX;
-        host.style.top = `${top}px`;
-        host.style.left = `${left}px`;
+      const showPillForInput = (target: HTMLInputElement) => {
+        currentFocusedInput = target;
+        const { shadow } = createInlineButtonHost();
+        positionInlinePill(target);
 
         shadow.innerHTML = `
           <style>
@@ -90,7 +143,7 @@ export default defineContentScript({
               display: inline-flex;
               align-items: center;
               gap: 6px;
-              padding: 5px 11px;
+              padding: 5px 12px;
               background: #0a0a0a;
               border: 1px solid #272a30;
               border-radius: 9999px;
@@ -99,13 +152,15 @@ export default defineContentScript({
               font-size: 11px;
               font-weight: 500;
               cursor: pointer;
-              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-              transition: all 0.15s ease;
+              box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+              transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
               user-select: none;
+              white-space: nowrap;
             }
             .pdv-pill:hover {
               background: #14171a;
               border-color: #3b82f6;
+              color: #ffffff;
               transform: translateY(-1px);
             }
             .pdv-icon {
@@ -124,38 +179,105 @@ export default defineContentScript({
 
         const btn = shadow.querySelector("button");
         if (btn) {
-          btn.addEventListener("mousedown", async (btnEvent) => {
-            btnEvent.preventDefault(); // Prevent blurring target input
-            btn.innerHTML = "<span>Generating...</span>";
+          // Use mousedown with preventDefault so clicking the pill doesn't blur the input
+          btn.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          });
+
+          btn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
 
             try {
-              const res = await browser.runtime.sendMessage({
-                type: "GENERATE_AND_FILL",
-                options: { length: 20 },
-              });
+              // 1. Generate strong password synchronously
+              const password = generatePassword({ length: 20 });
 
-              if (res?.success) {
-                btn.innerHTML = "<span>✓ Password Filled</span>";
-                setTimeout(() => removeInlineButton(), 1200);
-              } else {
-                btn.innerHTML = "<span>Failed to fill</span>";
+              // 2. Fill focused password input
+              setInputValue(target, password);
+
+              // 3. Fill confirmation password field on the same form if present
+              let confirmFilled = false;
+              if (target.form) {
+                const otherPasswordInputs = Array.from(
+                  target.form.querySelectorAll<HTMLInputElement>(
+                    'input[type="password"], input[autocomplete="new-password"], input[name*="pass" i], input[id*="pass" i]',
+                  ),
+                ).filter((inp) => inp !== target);
+
+                for (const other of otherPasswordInputs) {
+                  setInputValue(other, password);
+                  confirmFilled = true;
+                }
               }
+
+              // 4. Extract username and stage credentials for auto-save
+              const captured = captureCredentialsFromDocument(document, target.form);
+              const cred: CapturedCredential = {
+                username: captured?.username || "",
+                password,
+                url: window.location.href,
+                title: document.title || window.location.hostname,
+                timestamp: Date.now(),
+              };
+
+              browser.runtime
+                .sendMessage({
+                  type: "CAPTURE_CREDENTIALS",
+                  data: cred,
+                })
+                .catch(() => {});
+
+              // 5. Update UI feedback
+              btn.innerHTML = confirmFilled
+                ? "<span>✓ Password & Confirm Filled!</span>"
+                : "<span>✓ Strong Password Filled!</span>";
+
+              // 6. Display floating Save Prompt Banner so user can save immediately
+              showSavePromptBanner(cred);
+
+              setTimeout(() => {
+                isHoveringPill = false;
+                removeInlineButton();
+              }, 1800);
             } catch {
-              removeInlineButton();
+              btn.innerHTML = "<span>Error filling</span>";
+              setTimeout(() => removeInlineButton(), 1500);
             }
           });
         }
+      };
+
+      document.addEventListener("focusin", (e) => {
+        const target = e.target as HTMLInputElement | null;
+        if (!isPasswordField(target)) return;
+        showPillForInput(target);
+      });
+
+      document.addEventListener("click", (e) => {
+        const target = e.target as HTMLInputElement | null;
+        if (!isPasswordField(target)) return;
+        showPillForInput(target);
       });
 
       document.addEventListener("focusout", () => {
-        // Delay to allow clicking the button
         setTimeout(() => {
+          if (isHoveringPill) return;
           const activeEl = document.activeElement;
-          if (!activeEl || (activeEl as HTMLInputElement).type !== "password") {
+          if (!isPasswordField(activeEl)) {
             removeInlineButton();
           }
         }, 200);
       });
+
+      // Update position dynamically on scroll or window resize
+      const updatePos = () => {
+        if (currentFocusedInput && inlineButtonHost) {
+          positionInlinePill(currentFocusedInput);
+        }
+      };
+      window.addEventListener("scroll", updatePos, { passive: true, capture: true });
+      window.addEventListener("resize", updatePos, { passive: true });
     }
 
     // 3. Form Submission Capture

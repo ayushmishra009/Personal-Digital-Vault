@@ -53,10 +53,10 @@ describe("Popup UI Component", () => {
           },
         };
       }
-      if (msg.type === "LIST_CREDENTIALS") {
+      if (message.type === "LIST_CREDENTIALS") {
         return { success: true, data: [] };
       }
-      if (msg.type === "GET_PENDING_CAPTURE") {
+      if (message.type === "GET_PENDING_CAPTURE") {
         return {
           success: true,
           data: {

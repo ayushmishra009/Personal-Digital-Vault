@@ -7,6 +7,23 @@ import { generatePassword } from "../src/utils/password-generator";
 export default defineBackground(() => {
   const session = new SessionManager();
 
+  async function getActiveTab(sender?: unknown) {
+    const s = sender as { tab?: { id?: number; url?: string } } | undefined;
+    if (s?.tab?.id) {
+      return s.tab;
+    }
+    const tabs = await browser.tabs.query({
+      active: true,
+      lastFocusedWindow: true,
+    });
+    if (tabs.length > 0) return tabs[0];
+    const fallbackTabs = await browser.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+    return fallbackTabs[0] || null;
+  }
+
   // Load persisted allowlist and stored vault data on service worker startup
   try {
     browser.storage?.local
@@ -30,16 +47,12 @@ export default defineBackground(() => {
 
   // Handle messages from Popup or options
   browser.runtime.onMessage.addListener(
-    (message: ExtensionMessage, _sender, sendResponse) => {
+    (message: ExtensionMessage, sender, sendResponse) => {
       (async () => {
         try {
           switch (message.type) {
             case "GET_STATUS": {
-              const tabs = await browser.tabs.query({
-                active: true,
-                currentWindow: true,
-              });
-              const currentTab = tabs[0];
+              const currentTab = await getActiveTab(sender);
               const status = session.getStatus(currentTab?.url);
               sendResponse({ success: true, data: status });
               break;
@@ -71,11 +84,7 @@ export default defineBackground(() => {
             }
 
             case "LIST_CREDENTIALS": {
-              const tabs = await browser.tabs.query({
-                active: true,
-                currentWindow: true,
-              });
-              const currentTab = tabs[0];
+              const currentTab = await getActiveTab(sender);
               const credentials = session.listCredentials(
                 currentTab?.url,
                 message.query,
@@ -85,11 +94,7 @@ export default defineBackground(() => {
             }
 
             case "CHECK_DOMAIN_MATCH": {
-              const tabs = await browser.tabs.query({
-                active: true,
-                currentWindow: true,
-              });
-              const currentTab = tabs[0];
+              const currentTab = await getActiveTab(sender);
               const matchInfo = session.checkDomainMatch(
                 message.recordId,
                 currentTab?.url,
@@ -99,11 +104,7 @@ export default defineBackground(() => {
             }
 
             case "REQUEST_FILL": {
-              const tabs = await browser.tabs.query({
-                active: true,
-                currentWindow: true,
-              });
-              const currentTab = tabs[0];
+              const currentTab = await getActiveTab(sender);
 
               if (!currentTab || !currentTab.id) {
                 sendResponse({
@@ -201,11 +202,7 @@ export default defineBackground(() => {
 
             case "GENERATE_AND_FILL": {
               const generated = generatePassword(message.options || {});
-              const tabs = await browser.tabs.query({
-                active: true,
-                currentWindow: true,
-              });
-              const currentTab = tabs[0];
+              const currentTab = await getActiveTab(sender);
               if (!currentTab || !currentTab.id) {
                 sendResponse({
                   success: false,
@@ -214,19 +211,27 @@ export default defineBackground(() => {
                 break;
               }
 
-              const fillResult = await browser.tabs.sendMessage(
-                currentTab.id,
-                {
-                  type: "PDV_FILL_GENERATED_PASSWORD",
-                  payload: { password: generated },
-                },
-                { frameId: 0 },
-              );
+              try {
+                const fillResult = await browser.tabs.sendMessage(
+                  currentTab.id,
+                  {
+                    type: "PDV_FILL_GENERATED_PASSWORD",
+                    payload: { password: generated },
+                  },
+                  { frameId: 0 },
+                );
 
-              sendResponse({
-                success: true,
-                data: { password: generated, fillResult },
-              });
+                sendResponse({
+                  success: true,
+                  data: { password: generated, fillResult },
+                });
+              } catch {
+                sendResponse({
+                  success: false,
+                  error:
+                    "Unable to communicate with active tab. Please refresh the page.",
+                });
+              }
               break;
             }
 
