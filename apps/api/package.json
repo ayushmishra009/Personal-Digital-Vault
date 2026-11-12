@@ -6,7 +6,7 @@
     "build": "go build -o bin/pdv-api.exe ./cmd/api",
     "lint": "go vet ./...",
     "typecheck": "go build -mod=vendor ./...",
-    "test": "go test -mod=vendor ./internal/auth && go test -mod=vendor -c -o api-test.exe ./internal/router && .\\api-test.exe && powershell -Command \"Remove-Item -Force -ErrorAction SilentlyContinue api-test.exe\"",
+    "test": "go test -mod=vendor ./...",
     "db:up": "go run ./cmd/migrate up",
     "db:down": "go run ./cmd/migrate down"
   }
